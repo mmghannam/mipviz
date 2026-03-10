@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solver Benchmarks — mipviz</title>
+    <link rel="stylesheet" href="./style.css?v=63">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz<span class="beta-badge">beta</span></h1></a>
+            <nav class="header-nav">
+                <a href="./instances.html" class="nav-link">Instance Bank</a>
+                <a href="./benchmarks.html" class="nav-link active">Benchmarks</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <section class="bank-section">
+            <div class="bank-header">
+                <h2>Solver Benchmarks</h2>
+                <span id="bank-count" class="bank-count"></span>
+            </div>
+            <div class="benchmark-attribution">
+                Data from <a href="https://plato.asu.edu/ftp/milp.html" target="_blank" rel="noopener">Mittelmann MILP Benchmarks</a> by H. Mittelmann.
+                12 threads, 7200s time limit, AMD Ryzen 9 5900X (128GB). Updated 9 Feb 2026.
+            </div>
+            <input type="text" id="bank-search" class="library-search" placeholder="Search instances... (s)" autocomplete="off">
+            <div class="bank-controls">
+                <div class="metric-toggle">
+                    <span class="sort-label">Metric</span>
+                    <button class="metric-btn active" data-metric="time">Time</button>
+                    <button class="metric-btn" data-metric="nodes">Nodes</button>
+                    <button class="metric-btn" data-metric="presolve">Presolve</button>
+                    <button class="metric-btn" data-metric="lp_gap">LP Gap</button>
+                </div>
+                <div class="bank-sort">
+                    <span class="sort-label">Sort by</span>
+                    <button class="sort-btn active" data-sort="name">Name</button>
+                    <button class="sort-btn" data-sort="scip_spx">SCIP/spx</button>
+                    <button class="sort-btn" data-sort="scipc_cpx">SCIP/cpx</button>
+                    <button class="sort-btn" data-sort="highs">HiGHS</button>
+                    <button class="sort-btn" data-sort="copt">COPT</button>
+                    <button class="sort-btn" data-sort="optverse">Optverse</button>
+                </div>
+            </div>
+            <div class="bank-table-wrap">
+                <table class="bank-table benchmark-table">
+                    <thead>
+                        <tr>
+                            <th class="col-name">Name</th>
+                            <th class="col-solver">SCIP/spx 10.0.0</th>
+                            <th class="col-solver">SCIP/cpx 10.0.0</th>
+                            <th class="col-solver col-separator">HiGHS 1.13.0</th>
+                            <th class="col-solver col-commercial">COPT 8.0.3</th>
+                            <th class="col-solver col-commercial">Optverse 2.0.1</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bank-body"></tbody>
+                </table>
+            </div>
+            <div id="bank-status" class="bank-status">Loading benchmark data...</div>
+        </section>
+    </main>
+
+    <!-- Log viewer modal -->
+    <div id="log-modal" class="log-modal hidden">
+        <div class="log-modal-backdrop"></div>
+        <div class="log-modal-content">
+            <div class="log-modal-header">
+                <span id="log-modal-title" class="log-modal-title"></span>
+                <button id="log-modal-close" class="log-modal-close">&times;</button>
+            </div>
+            <pre id="log-modal-body" class="log-modal-body">Loading...</pre>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <span class="footer-developed">Developed by <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="footer-link"><svg class="footer-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Mohammed Ghannam</a> with <a href="https://claude.ai" target="_blank" rel="noopener" class="footer-link"><img src="./claude-logo.png?v=2" alt="Claude" class="claude-logo"></a></span>
+            <span class="footer-powered">Powered by <a href="https://www.scipopt.org" target="_blank" rel="noopener" title="SCIP"><img src="./scip-logo-light.svg" alt="SCIP" class="footer-logo scip-dark" width="20" height="20"><img src="./scip-logo-blue.svg" alt="SCIP" class="footer-logo scip-light" width="20" height="20"></a> &amp; <a href="https://highs.dev" target="_blank" rel="noopener" title="HiGHS"><img src="./highs-logo.png?v=2" alt="HiGHS" class="footer-logo" width="20" height="20" style="position:relative;top:2px"></a></span>
+        </div>
+    </footer>
+
+    <script src="./theme.js?v=1"></script>
+    <script>
+    const bankBody = document.getElementById('bank-body');
+    const bankSearch = document.getElementById('bank-search');
+    const bankCount = document.getElementById('bank-count');
+    const bankStatus = document.getElementById('bank-status');
+
+    const SOLVERS = ['scip_spx', 'scipc_cpx', 'highs', 'copt', 'optverse'];
+    const SOLVER_LABELS = { highs: 'HiGHS', scip_spx: 'SCIP/spx', scipc_cpx: 'SCIP/cpx', copt: 'COPT', optverse: 'Optverse' };
+    const COMMERCIAL = new Set(['copt', 'optverse']);
+    const TIMEOUT = 7200;
+
+    let allRows = [];
+    let currentSort = 'name';
+    let sortAsc = true;
+    let currentMetric = 'time'; // 'time', 'nodes', 'presolve'
+
+    // Log modal
+    const logModal = document.getElementById('log-modal');
+    const logModalTitle = document.getElementById('log-modal-title');
+    const logModalBody = document.getElementById('log-modal-body');
+    document.getElementById('log-modal-close').addEventListener('click', () => logModal.classList.add('hidden'));
+    document.querySelector('.log-modal-backdrop').addEventListener('click', () => logModal.classList.add('hidden'));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') logModal.classList.add('hidden'); });
+
+    async function showLog(instanceName, solver) {
+        const baseName = instanceName.replace('.mps.gz', '');
+        logModalTitle.textContent = baseName + ' — ' + SOLVER_LABELS[solver];
+        logModalBody.textContent = 'Loading...';
+        logModal.classList.remove('hidden');
+        try {
+            const url = './logs/' + solver + '/' + baseName + '.txt.gz';
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Log not found');
+            const ds = new DecompressionStream('gzip');
+            const reader = resp.body.pipeThrough(ds).getReader();
+            const decoder = new TextDecoder();
+            let text = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                text += decoder.decode(value, { stream: true });
+            }
+            logModalBody.textContent = text;
+        } catch (e) {
+            logModalBody.textContent = 'Failed to load log: ' + e.message;
+        }
+    }
+
+    function instanceHref(name) {
+        return './benchmark-instance.html?instance=' + encodeURIComponent(name);
+    }
+
+    function renderTime(val) {
+        if (val === null) return { cls: 'solve-timeout', label: 'timeout' };
+        // 5-level scale: ≤10s, ≤100s, ≤1000s, ≤3600s, >3600s
+        if (val <= 10) return { cls: 'solve-1', label: val + 's' };
+        if (val <= 100) return { cls: 'solve-2', label: val + 's' };
+        if (val <= 1000) return { cls: 'solve-3', label: val + 's' };
+        if (val <= 3600) return { cls: 'solve-4', label: val + 's' };
+        return { cls: 'solve-5', label: val + 's' };
+    }
+
+    function renderNodes(val) {
+        if (val === null) return { cls: 'solve-timeout', label: '-' };
+        // 5-level scale: ≤100, ≤10k, ≤100k, ≤1M, >1M
+        if (val <= 100) return { cls: 'solve-1', label: val.toLocaleString() };
+        if (val <= 10000) return { cls: 'solve-2', label: val.toLocaleString() };
+        if (val <= 100000) return { cls: 'solve-3', label: val.toLocaleString() };
+        if (val <= 1000000) return { cls: 'solve-4', label: val.toLocaleString() };
+        return { cls: 'solve-5', label: val.toLocaleString() };
+    }
+
+    function renderPresolve(rows, cols) {
+        if (rows === null || cols === null) return { cls: '', label: '-' };
+        return { cls: '', label: rows + ' \u00d7 ' + cols };
+    }
+
+    function renderLpGap(solverData, bestObj) {
+        if (solverData.lp_dual === null || solverData.lp_dual === undefined || bestObj === null || bestObj === undefined || bestObj === 0)
+            return { cls: '', label: '-' };
+        var gap = Math.abs(solverData.lp_dual - bestObj) / Math.abs(bestObj) * 100;
+        // 5-level scale: ≤1%, ≤5%, ≤20%, ≤50%, >50%
+        if (gap <= 1) return { cls: 'solve-1', label: gap.toFixed(2) + '%' };
+        if (gap <= 5) return { cls: 'solve-2', label: gap.toFixed(2) + '%' };
+        if (gap <= 20) return { cls: 'solve-3', label: gap.toFixed(1) + '%' };
+        if (gap <= 50) return { cls: 'solve-4', label: gap.toFixed(1) + '%' };
+        return { cls: 'solve-5', label: gap.toFixed(1) + '%' };
+    }
+
+    function renderCell(solverData, instanceName, solver, bestObj) {
+        let r;
+        if (currentMetric === 'time') {
+            r = renderTime(solverData.time);
+        } else if (currentMetric === 'nodes') {
+            r = renderNodes(solverData.nodes);
+        } else if (currentMetric === 'lp_gap') {
+            r = renderLpGap(solverData, bestObj);
+        } else {
+            r = renderPresolve(solverData.presolved_rows, solverData.presolved_cols);
+        }
+        const clsAttr = r.cls ? ' class="' + r.cls + '"' : '';
+        let timeHint = '';
+        if (currentMetric !== 'time') {
+            const t = renderTime(solverData.time);
+            timeHint = '<span class="cell-time-hint">' + t.label + '</span>';
+        }
+        return '<a href="#" class="log-link" data-instance="' + instanceName + '" data-solver="' + solver + '"><span' + clsAttr + '>' + r.label + '</span>' + timeHint + '</a>';
+    }
+
+    function renderTable(data) {
+        bankBody.innerHTML = '';
+        for (const row of data) {
+            const tr = document.createElement('tr');
+            const bestObj = row._stats ? row._stats.best_obj : null;
+            let cells = '<td class="col-name"><a href="' + instanceHref(row.name) + '">' + row.name.replace('.mps.gz', '') + '</a></td>';
+            for (let i = 0; i < SOLVERS.length; i++) {
+                const s = SOLVERS[i];
+                const sep = (i === 2) ? ' col-separator' : '';
+                const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
+                cells += '<td class="col-solver' + sep + com + '">' + renderCell(row[s], row.name, s, bestObj) + '</td>';
+            }
+            tr.innerHTML = cells;
+            bankBody.appendChild(tr);
+        }
+        bankCount.textContent = data.length + ' instances';
+    }
+
+    // Delegate log link clicks
+    bankBody.addEventListener('click', (e) => {
+        const link = e.target.closest('.log-link');
+        if (link) {
+            e.preventDefault();
+            showLog(link.dataset.instance, link.dataset.solver);
+        }
+    });
+
+    function getSortValue(row, solverKey) {
+        const d = row[solverKey];
+        if (!d) return null;
+        if (currentMetric === 'time') return d.time;
+        if (currentMetric === 'nodes') return d.nodes;
+        if (currentMetric === 'lp_gap') {
+            const bestObj = row._stats ? row._stats.best_obj : null;
+            if (d.lp_dual != null && bestObj != null && bestObj !== 0)
+                return Math.abs(d.lp_dual - bestObj) / Math.abs(bestObj) * 100;
+            return null;
+        }
+        // presolve: sort by total size (rows * cols)
+        if (d.presolved_rows != null && d.presolved_cols != null)
+            return d.presolved_rows * d.presolved_cols;
+        return null;
+    }
+
+    function sortData(data, key, asc) {
+        return data.slice().sort((a, b) => {
+            if (key === 'name') {
+                return asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+            }
+            const av = getSortValue(a, key);
+            const bv = getSortValue(b, key);
+            // nulls sort to the end when ascending, beginning when descending
+            const va = av === null ? Infinity : av;
+            const vb = bv === null ? Infinity : bv;
+            return asc ? va - vb : vb - va;
+        });
+    }
+
+    function applyFilter() {
+        const q = bankSearch.value.toLowerCase();
+        let filtered = allRows;
+        if (q) {
+            filtered = filtered.filter(r => r.name.toLowerCase().includes(q));
+        }
+        filtered = sortData(filtered, currentSort, sortAsc);
+        renderTable(filtered);
+    }
+
+    // Metric toggle
+    document.querySelectorAll('.metric-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentMetric = btn.dataset.metric;
+            document.querySelectorAll('.metric-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyFilter();
+        });
+    });
+
+    // Sort buttons
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.dataset.sort;
+            if (currentSort === key) {
+                sortAsc = !sortAsc;
+            } else {
+                currentSort = key;
+                sortAsc = key === 'name';
+            }
+            document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            btn.textContent = btn.textContent.replace(/ [▲▼]$/, '') + (sortAsc ? ' ▲' : ' ▼');
+            document.querySelectorAll('.sort-btn:not(.active)').forEach(b => {
+                b.textContent = b.textContent.replace(/ [▲▼]$/, '');
+            });
+            applyFilter();
+        });
+    });
+
+    bankSearch.addEventListener('input', applyFilter);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            var tag = document.activeElement && document.activeElement.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            e.preventDefault();
+            bankSearch.focus();
+        }
+    });
+
+    // Keyboard navigation
+    var selectedRow = -1;
+
+    function selectRow(idx) {
+        var rows = bankBody.querySelectorAll('tr');
+        if (rows.length === 0) return;
+        if (selectedRow >= 0 && selectedRow < rows.length) {
+            rows[selectedRow].classList.remove('bank-row-selected');
+        }
+        selectedRow = Math.max(0, Math.min(idx, rows.length - 1));
+        rows[selectedRow].classList.add('bank-row-selected');
+        rows[selectedRow].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'j' && e.key !== 'k' && e.key !== 'Enter') {
+            var tag = document.activeElement && document.activeElement.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        }
+        if (e.key === 'j' || e.key === 'k') {
+            var tag2 = document.activeElement && document.activeElement.tagName;
+            if (tag2 === 'INPUT' || tag2 === 'TEXTAREA' || tag2 === 'SELECT') return;
+        }
+
+        var rows = bankBody.querySelectorAll('tr');
+        if (rows.length === 0) return;
+
+        if (e.key === 'ArrowDown' || e.key === 'j') {
+            e.preventDefault();
+            selectRow(selectedRow + 1);
+        } else if (e.key === 'ArrowUp' || e.key === 'k') {
+            e.preventDefault();
+            selectRow(selectedRow - 1);
+        } else if (e.key === 'Enter' && selectedRow >= 0 && selectedRow < rows.length) {
+            var link = rows[selectedRow].querySelector('a');
+            if (link) link.click();
+        }
+    });
+
+    var origRenderTable = renderTable;
+    renderTable = function(data) {
+        selectedRow = -1;
+        origRenderTable(data);
+    };
+
+    // Load data
+    fetch('./benchmark-12threads-details.json')
+        .then(r => r.json())
+        .then(data => {
+            allRows = Object.entries(data).map(([name, solvers]) => ({
+                name: name,
+                ...solvers
+            }));
+            bankStatus.classList.add('hidden');
+            applyFilter();
+        })
+        .catch(err => {
+            console.error(err);
+            bankStatus.textContent = 'Failed to load benchmark data.';
+        });
+    </script>
+</body>
+</html>

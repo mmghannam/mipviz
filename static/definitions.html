@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Constraint Type Definitions — mipviz</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+    <link rel="stylesheet" href="./style.css?v=60">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz</h1></a>
+            <nav class="header-nav">
+                <div class="nav-search-wrap">
+                    <input type="text" id="nav-search" class="nav-search" placeholder="Search instances… (s)" autocomplete="off">
+                    <div id="nav-search-dropdown" class="nav-search-dropdown"></div>
+                </div>
+                <a href="./instances.html" class="nav-link">Instance Bank</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <section class="definitions-section">
+            <h2 class="definitions-title">Constraint Type Definitions</h2>
+            <p class="definitions-intro">Each constraint in a MIP instance is classified by its <em>variable composition</em> and its <em>structure</em>. A constraint can carry one tag from each category.</p>
+
+            <h3 class="definitions-category">Variable Composition</h3>
+            <p class="definitions-category-desc">Describes the types of variables appearing in the constraint.</p>
+
+            <div class="definitions-grid">
+                <div class="definition-card">
+                    <span class="type-tag" data-type="continuous">continuous</span>
+                    <p>All variables are continuous.</p>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="pure binary">pure binary</span>
+                    <p>All variables are binary.</p>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="mixed binary">mixed binary</span>
+                    <p>Contains both binary and continuous variables (no general integers).</p>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="mixed integer">mixed integer</span>
+                    <p>Contains at least one general integer variable.</p>
+                </div>
+            </div>
+
+            <h3 class="definitions-category">Structure</h3>
+            <p class="definitions-category-desc">Describes the mathematical structure of the constraint. Where $x_i \in \{0,1\}$ denotes binary variables and $b$ is a constant.</p>
+
+            <div class="definitions-grid">
+                <div class="definition-card">
+                    <span class="type-tag" data-type="set partitioning">set partitioning</span>
+                    <p>All binary variables with coefficients of 1, equality with RHS = 1.</p>
+                    <div class="definition-formula">$$\sum_{i} x_i = 1$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="set packing">set packing</span>
+                    <p>All binary variables with coefficients of 1, $\leq$ constraint with RHS = 1.</p>
+                    <div class="definition-formula">$$\sum_{i} x_i \leq 1$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="set covering">set covering</span>
+                    <p>All binary variables with coefficients of 1, $\geq$ constraint with RHS = 1.</p>
+                    <div class="definition-formula">$$\sum_{i} x_i \geq 1$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="cardinality">cardinality</span>
+                    <p>All binary variables with unit coefficients $(\pm 1)$.</p>
+                    <div class="definition-formula">$$\sum_{i} \pm x_i \leq b$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="knapsack">knapsack</span>
+                    <p>All binary variables with non-unit coefficients, $\leq$ or $\geq$ constraint.</p>
+                    <div class="definition-formula">$$\sum_{i} a_i x_i \leq b$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="bin. knapsack eq.">bin. knapsack eq.</span>
+                    <p>All binary variables with non-unit coefficients, equality constraint.</p>
+                    <div class="definition-formula">$$\sum_{i} a_i x_i = b$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="integer knapsack">integer knapsack</span>
+                    <p>No continuous variables, at least one general integer, $\leq$ or $\geq$ constraint.</p>
+                    <div class="definition-formula">$$\sum_{i} a_i y_i \leq b, \quad y_i \in \mathbb{Z}$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="variable bound">variable bound</span>
+                    <p>Exactly 2 variables: one binary and one continuous or general integer.</p>
+                    <div class="definition-formula">$$a \cdot x + b \cdot y \leq c, \quad x \in \{0,1\}$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="bound">bound</span>
+                    <p>Single-variable constraint (effectively an explicit bound on one variable).</p>
+                    <div class="definition-formula">$$l \leq a \cdot x \leq u$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="equality">equality</span>
+                    <p>Any equality constraint not already classified as set partitioning or binary knapsack equality.</p>
+                    <div class="definition-formula">$$\sum_{i} a_i x_i = b$$</div>
+                </div>
+                <div class="definition-card">
+                    <span class="type-tag" data-type="empty">empty</span>
+                    <p>Constraint with no variables (zero terms).</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <span class="footer-developed">Developed by <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="footer-link"><svg class="footer-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Mohammed Ghannam</a> with <a href="https://claude.ai" target="_blank" rel="noopener" class="footer-link"><img src="./claude-logo.png?v=2" alt="Claude" class="claude-logo"></a></span>
+            <span class="footer-powered">Powered by <a href="https://www.scipopt.org" target="_blank" rel="noopener" title="SCIP"><img src="./scip-logo-light.svg" alt="SCIP" class="footer-logo scip-dark" width="20" height="20"><img src="./scip-logo-blue.svg" alt="SCIP" class="footer-logo scip-light" width="20" height="20"></a> &amp; <a href="https://highs.dev" target="_blank" rel="noopener" title="HiGHS"><img src="./highs-logo.png?v=2" alt="HiGHS" class="footer-logo" width="20" height="20" style="position:relative;top:2px"></a></span>
+        </div>
+    </footer>
+
+    <script>window.__wasmAvailable = false;</script>
+    <script src="./mipviz_wasm.js" onload="window.__wasmAvailable=true" onerror=""></script>
+    <script src="./api.js?v=1"></script>
+    <script src="./nav-search.js?v=2"></script>
+    <script src="./theme.js?v=1"></script>
+</body>
+</html>

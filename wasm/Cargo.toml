@@ -1,0 +1,13 @@
+[package]
+name = "mipviz-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+mipviz = { path = "..", default-features = false }
+lio-highs = { git = "https://github.com/mmghannam/lio-highs" }
+scip-sys = { git = "https://github.com/scipopt/scip-sys", branch = "wasm", features = ["from-source"] }
+serde_json = "1"

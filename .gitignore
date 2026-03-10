@@ -1,0 +1,4 @@
+/target
+/wasm/dist
+node_modules/
+demo-video/

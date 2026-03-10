@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instance Bank — mipviz</title>
+    <link rel="stylesheet" href="./style.css?v=60">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz<span class="beta-badge">beta</span></h1></a>
+            <nav class="header-nav">
+                <a href="./instances.html" class="nav-link active">Instance Bank</a>
+                <a href="./benchmarks.html" class="nav-link">Benchmarks</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <section class="bank-section">
+            <div class="bank-header">
+                <h2>Instance Bank</h2>
+                <span id="bank-count" class="bank-count"></span>
+            </div>
+            <input type="text" id="bank-search" class="library-search" placeholder="Search instances… (s)" autocomplete="off">
+            <div class="bank-filters" id="bank-filters">
+                <span class="sort-label">Collection</span>
+                <button class="filter-btn active" data-filter="all">All</button>
+            </div>
+            <div class="bank-filters" id="tag-filters">
+                <span class="sort-label">Tag</span>
+                <button class="tag-filter-btn active" data-tag="all">All</button>
+            </div>
+            <div class="bank-sort">
+                <span class="sort-label">Sort by</span>
+                <button class="sort-btn active" data-sort="name">Name</button>
+                <button class="sort-btn" data-sort="num_vars">Variables</button>
+                <button class="sort-btn" data-sort="num_constraints">Constraints</button>
+                <button class="sort-btn" data-sort="num_nonzeros">Nonzeros</button>
+            </div>
+            <div class="bank-table-wrap">
+                <table class="bank-table">
+                    <thead>
+                        <tr>
+                            <th class="col-name">Name</th>
+                            <th class="col-num">Variables</th>
+                            <th class="col-num">Constraints</th>
+                            <th class="col-num">Nonzeros</th>
+                            <th class="col-num">Cont.</th>
+                            <th class="col-num">Int.</th>
+                            <th class="col-num">Bin.</th>
+                            <th class="col-tags">Status</th>
+                            <th class="col-tags">Tags</th>
+                            <th class="col-tags">Collections</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bank-body"></tbody>
+                </table>
+            </div>
+            <div id="bank-status" class="bank-status">Loading instance data…</div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <span class="footer-developed">Developed by <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="footer-link"><svg class="footer-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Mohammed Ghannam</a> with <a href="https://claude.ai" target="_blank" rel="noopener" class="footer-link"><img src="./claude-logo.png?v=2" alt="Claude" class="claude-logo"></a></span>
+            <span class="footer-powered">Powered by <a href="https://www.scipopt.org" target="_blank" rel="noopener" title="SCIP"><img src="./scip-logo-light.svg" alt="SCIP" class="footer-logo scip-dark" width="20" height="20"><img src="./scip-logo-blue.svg" alt="SCIP" class="footer-logo scip-light" width="20" height="20"></a> &amp; <a href="https://highs.dev" target="_blank" rel="noopener" title="HiGHS"><img src="./highs-logo.png?v=2" alt="HiGHS" class="footer-logo" width="20" height="20" style="position:relative;top:2px"></a></span>
+        </div>
+    </footer>
+
+    <script src="./theme.js?v=1"></script>
+    <script>
+    const bankBody = document.getElementById('bank-body');
+    const bankSearch = document.getElementById('bank-search');
+    const bankCount = document.getElementById('bank-count');
+    const bankStatus = document.getElementById('bank-status');
+
+    let allStats = [];
+    let collections = {};
+    let miplibMeta = {}; // name -> { tags, status, objective, ... }
+    let currentSort = 'name';
+    let sortAsc = true;
+    let currentFilter = 'all';
+    let currentTag = 'all';
+
+    function formatNum(n) {
+        return n.toLocaleString();
+    }
+
+    // Deterministic color from collection name using a string hash -> HSL
+    function collectionColor(name) {
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        const hue = ((hash % 360) + 360) % 360;
+        return 'hsl(' + hue + ', 70%, 65%)';
+    }
+
+    function renderTags(name) {
+        const tags = collections[name] || [];
+        return tags.map(t => {
+            const color = collectionColor(t);
+            return '<span class="collection-tag" data-tag="' + t + '" style="color:' + color + ';border-color:' + color + '">' + t.replace(/_/g, ' ') + '</span>';
+        }).join(' ');
+    }
+
+    function instanceHref(name) {
+        return './index.html#instance=' + encodeURIComponent(name);
+    }
+
+    function renderStatus(name) {
+        const meta = miplibMeta[name];
+        if (!meta || !meta.status) return '';
+        const s = meta.status;
+        const cls = s === 'easy' ? 'status-easy' : s === 'hard' ? 'status-hard' : 'status-open';
+        return '<span class="instance-status ' + cls + '">' + s + '</span>';
+    }
+
+    function renderMiplibTags(name) {
+        const meta = miplibMeta[name];
+        if (!meta || !meta.tags) return '';
+        // Filter out meta-tags (benchmark, benchmark_suitable, easy, hard, open)
+        const skip = new Set(['benchmark', 'benchmark_suitable', 'easy', 'hard', 'open', 'no_solution']);
+        const tags = meta.tags.filter(t => !skip.has(t));
+        return tags.map(t => {
+            const color = collectionColor('miplib_' + t);
+            return '<span class="miplib-tag" data-tag="' + t + '" style="color:' + color + ';border-color:' + color + '">' + t.replace(/_/g, ' ') + '</span>';
+        }).join(' ');
+    }
+
+    function renderTable(data) {
+        bankBody.innerHTML = '';
+        for (const s of data) {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="col-name"><a href="' + instanceHref(s.name) + '">' + s.name + '</a></td>' +
+                '<td class="col-num">' + formatNum(s.num_vars) + '</td>' +
+                '<td class="col-num">' + formatNum(s.num_constraints) + '</td>' +
+                '<td class="col-num">' + formatNum(s.num_nonzeros) + '</td>' +
+                '<td class="col-num">' + formatNum(s.num_continuous) + '</td>' +
+                '<td class="col-num">' + formatNum(s.num_integer) + '</td>' +
+                '<td class="col-num">' + formatNum(s.num_binary) + '</td>' +
+                '<td class="col-tags">' + renderStatus(s.name) + '</td>' +
+                '<td class="col-tags">' + renderMiplibTags(s.name) + '</td>' +
+                '<td class="col-tags">' + renderTags(s.name) + '</td>';
+            bankBody.appendChild(tr);
+        }
+        bankCount.textContent = data.length + ' instances';
+    }
+
+    function sortData(data, key, asc) {
+        return data.slice().sort((a, b) => {
+            if (key === 'name') {
+                return asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+            }
+            return asc ? a[key] - b[key] : b[key] - a[key];
+        });
+    }
+
+    function applyFilter() {
+        const q = bankSearch.value.toLowerCase();
+        let filtered = allStats;
+        if (currentFilter !== 'all') {
+            filtered = filtered.filter(s => (collections[s.name] || []).includes(currentFilter));
+        }
+        if (currentTag !== 'all') {
+            const skip = new Set(['benchmark', 'benchmark_suitable', 'easy', 'hard', 'open', 'no_solution']);
+            filtered = filtered.filter(s => {
+                const meta = miplibMeta[s.name];
+                if (!meta || !meta.tags) return false;
+                return meta.tags.filter(t => !skip.has(t)).includes(currentTag);
+            });
+        }
+        if (q) {
+            filtered = filtered.filter(s => s.name.toLowerCase().includes(q));
+        }
+        filtered = sortData(filtered, currentSort, sortAsc);
+        renderTable(filtered);
+    }
+
+    // Sort buttons
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.dataset.sort;
+            if (currentSort === key) {
+                sortAsc = !sortAsc;
+            } else {
+                currentSort = key;
+                sortAsc = key === 'name';
+            }
+            document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            btn.textContent = btn.textContent.replace(/ [▲▼]$/, '') + (sortAsc ? ' ▲' : ' ▼');
+            document.querySelectorAll('.sort-btn:not(.active)').forEach(b => {
+                b.textContent = b.textContent.replace(/ [▲▼]$/, '');
+            });
+            applyFilter();
+        });
+    });
+
+    bankSearch.addEventListener('input', applyFilter);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            var tag = document.activeElement && document.activeElement.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            e.preventDefault();
+            bankSearch.focus();
+        }
+    });
+
+    bankBody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('collection-tag')) {
+            const tag = e.target.dataset.tag;
+            currentFilter = tag;
+            document.querySelectorAll('.filter-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.filter === tag);
+            });
+            applyFilter();
+        }
+        if (e.target.classList.contains('miplib-tag')) {
+            const tag = e.target.dataset.tag;
+            currentTag = tag;
+            document.querySelectorAll('.tag-filter-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.tag === tag);
+            });
+            applyFilter();
+        }
+    });
+
+    // Collection filter buttons
+    function setupFilterButtons() {
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentFilter = btn.dataset.filter;
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                applyFilter();
+            });
+        });
+    }
+
+    // Tag filter buttons
+    function setupTagFilterButtons() {
+        document.querySelectorAll('.tag-filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentTag = btn.dataset.tag;
+                document.querySelectorAll('.tag-filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                applyFilter();
+            });
+        });
+    }
+
+    // Load data
+    const INSTANCE_REPO = 'https://raw.githubusercontent.com/mmghannam/mipviz-instances/main/';
+    const GITHUB_API_URL = 'https://api.github.com/repos/mmghannam/mipviz-instances/contents/collections';
+
+    Promise.all([
+        fetch(INSTANCE_REPO + 'instance-stats.json').then(r => r.json()),
+        fetch(GITHUB_API_URL).then(r => r.json()),
+        fetch(INSTANCE_REPO + 'miplib-metadata.json').then(r => r.json()).catch(() => []),
+    ])
+    .then(([stats, collectionFiles, miplibData]) => {
+        allStats = stats;
+        // Build miplib metadata lookup
+        miplibMeta = {};
+        miplibData.forEach(m => { miplibMeta[m.name] = m; });
+
+        // --- Defensive check for API rate limit ---
+        if (!Array.isArray(collectionFiles)) {
+            let errorMsg = 'Failed to load collection list from GitHub.';
+            if (collectionFiles.message && collectionFiles.message.includes("API rate limit exceeded")) {
+                errorMsg = 'GitHub API rate limit exceeded. Please wait a bit and try again.';
+            }
+            throw new Error(errorMsg);
+        }
+        // --- End defensive check ---
+
+        const collectionPromises = collectionFiles
+            .filter(f => f.name.endsWith('.txt'))
+            .map(f => fetch(f.download_url).then(r => r.text().then(text => ({
+                name: f.name.replace('.txt', ''),
+                instances: text.trim().split('\n')
+            }))));
+        
+        return Promise.all(collectionPromises);
+    })
+    .then(collectionData => {
+        // Build the inverted 'collections' object: { instanceName: [collection1, collection2] }
+        collections = {};
+        collectionData.forEach(collection => {
+            collection.instances.forEach(instanceName => {
+                if (!collections[instanceName]) {
+                    collections[instanceName] = [];
+                }
+                collections[instanceName].push(collection.name);
+            });
+        });
+
+        // Dynamically create filter buttons
+        const filtersContainer = document.getElementById('bank-filters');
+        collectionData.sort((a,b) => a.name.localeCompare(b.name)).forEach(collection => {
+            const btn = document.createElement('button');
+            btn.className = 'filter-btn';
+            btn.dataset.filter = collection.name;
+            btn.textContent = collection.name.replace(/_/g, ' ');
+            const color = collectionColor(collection.name);
+            btn.style.setProperty('--col-color', color);
+            filtersContainer.appendChild(btn);
+        });
+        
+        // Build tag filter buttons from MIPLIB metadata
+        const skip = new Set(['benchmark', 'benchmark_suitable', 'easy', 'hard', 'open', 'no_solution']);
+        const tagCounts = {};
+        Object.values(miplibMeta).forEach(m => {
+            if (m.tags) {
+                m.tags.filter(t => !skip.has(t)).forEach(t => {
+                    tagCounts[t] = (tagCounts[t] || 0) + 1;
+                });
+            }
+        });
+        const tagFiltersContainer = document.getElementById('tag-filters');
+        Object.keys(tagCounts).sort().forEach(tag => {
+            const btn = document.createElement('button');
+            btn.className = 'tag-filter-btn';
+            btn.dataset.tag = tag;
+            btn.textContent = tag.replace(/_/g, ' ');
+            const color = collectionColor('miplib_' + tag);
+            btn.style.setProperty('--tag-color', color);
+            tagFiltersContainer.appendChild(btn);
+        });
+
+        setupFilterButtons();
+        setupTagFilterButtons();
+        bankStatus.classList.add('hidden');
+        applyFilter();
+    })
+    .catch(err => {
+        console.error(err);
+        bankStatus.textContent = err.message || 'Failed to load instance data from GitHub.';
+    });
+
+    // Keyboard navigation for instance table
+    var selectedRow = -1;
+
+    function selectRow(idx) {
+        var rows = bankBody.querySelectorAll('tr');
+        if (rows.length === 0) return;
+        // Deselect previous
+        if (selectedRow >= 0 && selectedRow < rows.length) {
+            rows[selectedRow].classList.remove('bank-row-selected');
+        }
+        // Clamp index
+        selectedRow = Math.max(0, Math.min(idx, rows.length - 1));
+        rows[selectedRow].classList.add('bank-row-selected');
+        rows[selectedRow].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        // Allow arrow keys and Enter even when search is focused
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'j' && e.key !== 'k' && e.key !== 'Enter') {
+            var tag = document.activeElement && document.activeElement.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        }
+        // j/k only when not in input
+        if (e.key === 'j' || e.key === 'k') {
+            var tag2 = document.activeElement && document.activeElement.tagName;
+            if (tag2 === 'INPUT' || tag2 === 'TEXTAREA' || tag2 === 'SELECT') return;
+        }
+
+        var rows = bankBody.querySelectorAll('tr');
+        if (rows.length === 0) return;
+
+        if (e.key === 'ArrowDown' || e.key === 'j') {
+            e.preventDefault();
+            selectRow(selectedRow + 1);
+        } else if (e.key === 'ArrowUp' || e.key === 'k') {
+            e.preventDefault();
+            selectRow(selectedRow - 1);
+        } else if (e.key === 'Enter' && selectedRow >= 0 && selectedRow < rows.length) {
+            var link = rows[selectedRow].querySelector('a');
+            if (link) link.click();
+        }
+    });
+
+    // Reset selection when table is re-rendered
+    var origRenderTable = renderTable;
+    renderTable = function(data) {
+        selectedRow = -1;
+        origRenderTable(data);
+    };
+    </script>
+</body>
+</html>

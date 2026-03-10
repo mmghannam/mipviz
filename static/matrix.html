@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Explorer — mipviz</title>
+    <link rel="stylesheet" href="./style.css?v=60">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="matrix-page">
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz</h1></a>
+            <nav class="header-nav">
+                <a href="./instances.html" class="nav-link">Instance Bank</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <div id="matrix-loading" class="matrix-loading">
+        <div class="matrix-loading-text">Loading matrix…</div>
+    </div>
+
+    <div id="matrix-container" class="matrix-container" style="display:none">
+        <canvas id="matrix-canvas"></canvas>
+        <div id="matrix-minimap" class="matrix-minimap">
+            <canvas id="minimap-canvas"></canvas>
+            <div id="minimap-viewport" class="minimap-viewport"></div>
+        </div>
+        <div id="matrix-info" class="matrix-info"></div>
+        <div id="reduction-panel" class="reduction-panel" style="display:none">
+            <div class="reduction-panel-header">
+                <span class="reduction-panel-title">Reduction Details</span>
+                <button id="reduction-panel-close" class="reduction-panel-close">&times;</button>
+            </div>
+            <div id="reduction-panel-body" class="reduction-panel-body"></div>
+        </div>
+        <div id="stepper-bar" class="stepper-bar" style="display:none">
+            <div class="stepper-top">
+                <div class="stepper-left">
+                    <button id="step-prev" class="step-btn" disabled>&larr;</button>
+                    <span id="step-label" class="step-label">Step 0 / 0</span>
+                    <button id="step-next" class="step-btn">&rarr;</button>
+                    <button id="step-play" class="step-btn step-play" title="Auto-play reductions">&#9654;</button>
+                <button id="step-fast" class="step-btn step-play" title="Fast-forward reductions">&#9654;&#9654;</button>
+                </div>
+                <div id="step-info" class="step-info"></div>
+                <div class="stepper-right">
+                    <button id="step-reset" class="step-btn step-reset">Reset</button>
+                </div>
+            </div>
+            <div class="stepper-slider-wrap">
+                <input type="range" id="step-slider" class="step-slider" min="0" max="0" value="0">
+            </div>
+        </div>
+    </div>
+
+    <script>window.__wasmAvailable = false;</script>
+    <script src="./theme.js?v=1"></script>
+    <script src="./mipviz_wasm.js" onload="window.__wasmAvailable=true" onerror=""></script>
+    <script src="./api.js?v=1"></script>
+    <script src="./matrix.js?v=29"></script>
+</body>
+</html>

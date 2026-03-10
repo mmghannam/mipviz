@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instance Details — mipviz</title>
+    <link rel="stylesheet" href="./style.css?v=63">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        .instance-header {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .instance-header h2 {
+            font-family: var(--font-body);
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .instance-back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            text-decoration: none;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+        .instance-back:hover { color: var(--accent); }
+
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            margin-bottom: 32px;
+        }
+        .metrics-table thead th {
+            text-align: left;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .metrics-table thead th:first-child {
+            width: 160px;
+        }
+        .metrics-table tbody tr {
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .metrics-table tbody tr:hover {
+            background: var(--bg-hover);
+        }
+        .metrics-table td {
+            padding: 6px 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .metrics-table td:first-child {
+            font-weight: 500;
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+        .metrics-table .col-commercial {
+            background: rgba(234, 88, 12, 0.04);
+        }
+        .metrics-table thead .col-commercial {
+            color: var(--orange);
+        }
+        :root.light .metrics-table .col-commercial {
+            background: rgba(234, 88, 12, 0.06);
+        }
+        .metrics-table .col-separator {
+            border-right: 2px solid var(--border);
+        }
+        .metric-value-none {
+            color: var(--text-muted);
+            opacity: 0.5;
+        }
+        .metric-section-label td {
+            font-size: 10px !important;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted) !important;
+            opacity: 0.6;
+            padding-top: 14px !important;
+            border-bottom: none !important;
+        }
+        .metric-section-label td:first-child {
+            color: var(--accent) !important;
+            opacity: 1;
+        }
+
+        /* Log viewer */
+        .log-viewer {
+            margin-top: 32px;
+        }
+        .log-viewer h3 {
+            font-family: var(--font-body);
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+        .log-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 0;
+        }
+        .log-tab {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            background: none;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 6px 6px 0 0;
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: color 0.15s, background 0.15s;
+            margin-bottom: -1px;
+        }
+        .log-tab:hover {
+            color: var(--text);
+            background: var(--bg-hover);
+        }
+        .log-tab.active {
+            color: var(--accent);
+            background: var(--bg-raised);
+            border-color: var(--border);
+            border-bottom-color: var(--bg-raised);
+        }
+        .log-body {
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+            overflow: auto;
+            max-height: 70vh;
+            padding: 16px;
+        }
+        .log-body pre {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            white-space: pre;
+            tab-size: 8;
+        }
+        .log-loading {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 40px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz<span class="beta-badge">beta</span></h1></a>
+            <nav class="header-nav">
+                <a href="./instances.html" class="nav-link">Instance Bank</a>
+                <a href="./benchmarks.html" class="nav-link active">Benchmarks</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <section class="bank-section">
+            <a href="./benchmarks.html" class="instance-back">&larr; All benchmarks</a>
+            <div class="instance-header">
+                <h2 id="instance-name">Loading...</h2>
+                <a id="viewer-link" href="#" class="instance-back" style="display:none;margin:0;font-size:12px">Open in viewer &rarr;</a>
+            </div>
+
+            <div id="instance-stats" class="stats-grid" style="display:none"></div>
+
+            <div id="metrics-wrap"></div>
+
+            <div class="log-viewer">
+                <h3>Solver Logs</h3>
+                <div class="log-tabs" id="log-tabs"></div>
+                <div class="log-body" id="log-body">
+                    <div class="log-loading">Select a solver tab to view its log</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <span class="footer-developed">Developed by <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="footer-link"><svg class="footer-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Mohammed Ghannam</a> with <a href="https://claude.ai" target="_blank" rel="noopener" class="footer-link"><img src="./claude-logo.png?v=2" alt="Claude" class="claude-logo"></a></span>
+            <span class="footer-powered">Powered by <a href="https://www.scipopt.org" target="_blank" rel="noopener" title="SCIP"><img src="./scip-logo-light.svg" alt="SCIP" class="footer-logo scip-dark" width="20" height="20"><img src="./scip-logo-blue.svg" alt="SCIP" class="footer-logo scip-light" width="20" height="20"></a> &amp; <a href="https://highs.dev" target="_blank" rel="noopener" title="HiGHS"><img src="./highs-logo.png?v=2" alt="HiGHS" class="footer-logo" width="20" height="20" style="position:relative;top:2px"></a></span>
+        </div>
+    </footer>
+
+    <script src="./theme.js?v=1"></script>
+    <script>
+    const SOLVERS = ['scip_spx', 'scipc_cpx', 'highs', 'copt', 'optverse'];
+    const SOLVER_LABELS = { highs: 'HiGHS 1.13.0', scip_spx: 'SCIP/spx 10.0.0', scipc_cpx: 'SCIP/cpx 10.0.0', copt: 'COPT 8.0.3', optverse: 'Optverse 2.0.1' };
+    const COMMERCIAL = new Set(['copt', 'optverse']);
+
+    const instanceNameEl = document.getElementById('instance-name');
+    const metricsWrap = document.getElementById('metrics-wrap');
+    const logTabs = document.getElementById('log-tabs');
+    const logBody = document.getElementById('log-body');
+
+    // Get instance from URL
+    const params = new URLSearchParams(window.location.search);
+    const instanceKey = params.get('instance');
+
+    if (!instanceKey) {
+        instanceNameEl.textContent = 'No instance specified';
+        metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Add ?instance=name.mps.gz to the URL</p>';
+    } else {
+        const baseName = instanceKey.replace('.mps.gz', '');
+        instanceNameEl.textContent = baseName;
+        document.title = baseName + ' — Solver Benchmarks — mipviz';
+        const viewerLink = document.getElementById('viewer-link');
+        viewerLink.href = './index.html#instance=' + encodeURIComponent(baseName);
+        viewerLink.style.display = '';
+
+        // Log cache
+        const logCache = {};
+        let activeTab = null;
+
+        async function loadLog(solver) {
+            if (logCache[solver]) return logCache[solver];
+            const url = './logs/' + solver + '/' + baseName + '.txt.gz';
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Log not found');
+            const ds = new DecompressionStream('gzip');
+            const reader = resp.body.pipeThrough(ds).getReader();
+            const decoder = new TextDecoder();
+            let text = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                text += decoder.decode(value, { stream: true });
+            }
+            logCache[solver] = text;
+            return text;
+        }
+
+        async function showTab(solver) {
+            if (activeTab === solver) return;
+            activeTab = solver;
+            logTabs.querySelectorAll('.log-tab').forEach(t => t.classList.toggle('active', t.dataset.solver === solver));
+            logBody.innerHTML = '<div class="log-loading">Loading...</div>';
+            try {
+                const text = await loadLog(solver);
+                logBody.innerHTML = '<pre></pre>';
+                logBody.querySelector('pre').textContent = text;
+            } catch (e) {
+                logBody.innerHTML = '<div class="log-loading">Failed to load log: ' + e.message + '</div>';
+            }
+        }
+
+        function fmtVal(v) {
+            if (v === null || v === undefined) return '<span class="metric-value-none">\u2014</span>';
+            if (typeof v === 'number') {
+                if (Number.isInteger(v)) return v.toLocaleString();
+                if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                if (Math.abs(v) >= 1) return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+                return v.toLocaleString(undefined, { maximumFractionDigits: 6 });
+            }
+            return String(v);
+        }
+
+        function fmtTime(v) {
+            if (v === null || v === undefined) return '<span class="solve-timeout">timeout</span>';
+            let cls;
+            if (v <= 10) cls = 'solve-1';
+            else if (v <= 100) cls = 'solve-2';
+            else if (v <= 1000) cls = 'solve-3';
+            else if (v <= 3600) cls = 'solve-4';
+            else cls = 'solve-5';
+            return '<span class="' + cls + '">' + v + 's</span>';
+        }
+
+        function fmtNodes(v) {
+            if (v === null || v === undefined) return '<span class="metric-value-none">\u2014</span>';
+            let cls;
+            if (v <= 100) cls = 'solve-1';
+            else if (v <= 10000) cls = 'solve-2';
+            else if (v <= 100000) cls = 'solve-3';
+            else if (v <= 1000000) cls = 'solve-4';
+            else cls = 'solve-5';
+            return '<span class="' + cls + '">' + v.toLocaleString() + '</span>';
+        }
+
+        function buildTable(data) {
+            const solverData = SOLVERS.map(s => data[s] || {});
+            const bestObj = data._stats ? data._stats.best_obj : null;
+
+            function fmtDualWithGap(v) {
+                if (v === null || v === undefined) return '<span class="metric-value-none">\u2014</span>';
+                let valStr = fmtVal(v);
+                if (bestObj !== null && bestObj !== 0) {
+                    const gap = Math.abs(bestObj - v) / Math.abs(bestObj) * 100;
+                    const gapStr = gap < 0.01 ? '0%' : gap < 10 ? gap.toFixed(2) + '%' : gap.toFixed(1) + '%';
+                    valStr += ' <span class="cell-time-hint">(' + gapStr + ' gap)</span>';
+                }
+                return valStr;
+            }
+
+            const METRICS = [
+                { section: 'Performance' },
+                { key: 'time', label: 'Solve time', fmt: fmtTime },
+                { key: 'nodes', label: 'Nodes', fmt: fmtNodes },
+                { section: 'Presolve' },
+                { key: 'presolved_rows', label: 'Presolved rows' },
+                { key: 'presolved_cols', label: 'Presolved cols' },
+                { section: 'LP Relaxation (before cuts)' },
+                { key: 'lp_dual', label: 'Dual bound', fmt: fmtDualWithGap },
+                { key: 'lp_primal', label: 'Primal bound' },
+                { section: 'Root Node (after cuts)' },
+                { key: 'root_dual', label: 'Dual bound', fmt: fmtDualWithGap },
+                { key: 'root_primal', label: 'Primal bound' },
+            ];
+
+            let html = '<table class="metrics-table"><thead><tr><th>Metric</th>';
+            for (let i = 0; i < SOLVERS.length; i++) {
+                const s = SOLVERS[i];
+                const sep = (i === 2) ? ' col-separator' : '';
+                const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
+                html += '<th class="' + sep + com + '">' + SOLVER_LABELS[s] + '</th>';
+            }
+            html += '</tr></thead><tbody>';
+
+            for (const m of METRICS) {
+                if (m.section) {
+                    html += '<tr class="metric-section-label"><td>' + m.section + '</td>';
+                    for (let i = 0; i < SOLVERS.length; i++) {
+                        const sep = (i === 2) ? ' col-separator' : '';
+                        const com = COMMERCIAL.has(SOLVERS[i]) ? ' col-commercial' : '';
+                        html += '<td class="' + sep + com + '"></td>';
+                    }
+                    html += '</tr>';
+                    continue;
+                }
+                html += '<tr><td>' + m.label + '</td>';
+                for (let i = 0; i < SOLVERS.length; i++) {
+                    const s = SOLVERS[i];
+                    const sep = (i === 2) ? ' col-separator' : '';
+                    const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
+                    const val = solverData[i][m.key];
+                    const formatted = m.fmt ? m.fmt(val) : fmtVal(val);
+                    html += '<td class="' + sep + com + '">' + formatted + '</td>';
+                }
+                html += '</tr>';
+            }
+
+            html += '</tbody></table>';
+            metricsWrap.innerHTML = html;
+        }
+
+        // Build log tabs
+        for (const s of SOLVERS) {
+            const btn = document.createElement('button');
+            btn.className = 'log-tab';
+            btn.dataset.solver = s;
+            btn.textContent = SOLVER_LABELS[s];
+            btn.addEventListener('click', () => showTab(s));
+            logTabs.appendChild(btn);
+        }
+
+        // Load data
+        fetch('./benchmark-12threads-details.json')
+            .then(r => r.json())
+            .then(data => {
+                if (!data[instanceKey]) {
+                    instanceNameEl.textContent = baseName + ' (not found)';
+                    metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Instance not found in benchmark data.</p>';
+                    return;
+                }
+                const instData = data[instanceKey];
+                // Render instance stats grid
+                const s = instData._stats;
+                if (s && s.cols !== null) {
+                    const statsEl = document.getElementById('instance-stats');
+                    const items = [
+                        { label: 'Variables', value: s.cols, cls: '' },
+                        { label: 'Constraints', value: s.rows, cls: '' },
+                        { label: 'Nonzeros', value: s.nonzeros, cls: '' },
+                        { label: 'Continuous', value: s.continuous, cls: 'accent-blue' },
+                        { label: 'Integer', value: s.integer, cls: 'accent-green' },
+                        { label: 'Binary', value: s.binary, cls: 'accent-orange' },
+                    ];
+                    statsEl.innerHTML = items.map(it =>
+                        '<div class="stat-card ' + it.cls + '">' +
+                        '<span class="stat-value">' + (it.value !== null ? it.value.toLocaleString() : '\u2014') + '</span>' +
+                        '<span class="stat-label">' + it.label + '</span>' +
+                        '</div>'
+                    ).join('');
+                    statsEl.style.display = '';
+                }
+                buildTable(instData);
+                // Auto-show first solver log
+                showTab(SOLVERS[0]);
+            })
+            .catch(err => {
+                console.error(err);
+                metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Failed to load benchmark data.</p>';
+            });
+    }
+    </script>
+</body>
+</html>
