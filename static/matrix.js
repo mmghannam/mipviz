@@ -79,7 +79,6 @@
         .then(function (data) {
             modelData = data[0];
             reductions = data[1].reductions || [];
-            console.log('Loaded', reductions.length, 'reductions');
             init();
         })
         .catch(function (err) {

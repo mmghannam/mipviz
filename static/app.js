@@ -189,7 +189,7 @@ let mipSolution = null;
 
 function doSolveMip() {
     var solver = currentSolver;
-    if (!currentUploadFile) { alert('No model file loaded'); return; }
+    if (!currentUploadFile) { showToast('No model file loaded'); return; }
 
     const modal = document.getElementById('solve-modal');
     const log = document.getElementById('solve-log');
@@ -302,7 +302,7 @@ document.getElementById('solve-visible-btn').addEventListener('click', async fun
         return true;
     });
 
-    if (visible.length === 0) { alert('No visible constraints'); return; }
+    if (visible.length === 0) { showToast('No visible constraints'); return; }
 
     btn.textContent = 'Solving (' + visible.length + ')…';
     btn.disabled = true;
@@ -313,7 +313,7 @@ document.getElementById('solve-visible-btn').addEventListener('click', async fun
         solveLpBtn.classList.add('active');
         renderVariablesInit();
     } catch (err) {
-        alert('Solve error: ' + err.message);
+        showToast('Solve error: ' + err.message);
     } finally {
         btn.textContent = 'Solve visible LP';
         btn.disabled = false;
@@ -341,7 +341,7 @@ solveLpBtn.addEventListener('click', async () => {
         solveLpBtn.classList.add('active');
         renderVariablesInit();
     } catch (err) {
-        alert('LP solve error: ' + err.message);
+        showToast('LP solve error: ' + err.message);
         solveLpBtn.textContent = 'Solve LP';
     } finally {
         solveLpBtn.disabled = false;
@@ -383,7 +383,7 @@ async function doPresolve() {
             symmetryPanel.classList.add('hidden');
         }
     } catch (err) {
-        alert('Presolve error: ' + err.message);
+        showToast('Presolve error: ' + err.message);
         presolveBtn.textContent = 'Presolve';
     } finally {
         presolveBtn.disabled = false;
