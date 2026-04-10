@@ -635,7 +635,8 @@ main {
     gap: 6px;
     align-items: center;
     flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin: 12px 0 16px;
+    opacity: 0.55;
 }
 .instance-meta.hidden { display: none; }
 .instance-meta .instance-status,
@@ -643,6 +644,8 @@ main {
 .instance-meta .collection-tag {
     font-size: 10px;
     padding: 2px 8px;
+    cursor: default;
+    pointer-events: none;
 }
 
 .results-actions {
