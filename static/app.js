@@ -2971,8 +2971,8 @@ window.addEventListener('popstate', (e) => {
 // MIPVIZ_INSTANCES_BASE and MIPVIZ_INSTANCES_LFS are defined in config.js
 
 // Apply filters from URL hash params after model is loaded and rendered
-function applyHashFilters() {
-    var params = parseHashParams();
+function applyHashFilters(params) {
+    if (!params) params = parseHashParams();
     if (!params.type && !params.var) return;
     if (params.type && modelData) {
         activeTypeFilter = params.type;
@@ -2994,16 +2994,19 @@ function applyHashFilters() {
 (function() {
     var params = parseHashParams();
     if (params.instance) {
+        // Save filter params before loadInstanceFromUrl overwrites the hash
+        var savedParams = params;
         loadInstanceFromUrl(params.instance).then(function() {
-            applyHashFilters();
+            applyHashFilters(savedParams);
         });
     }
     // Handle hash changes while on the same page (e.g. nav search)
     window.addEventListener('hashchange', function() {
         var p = parseHashParams();
         if (p.instance) {
+            var saved = p;
             loadInstanceFromUrl(p.instance).then(function() {
-                applyHashFilters();
+                applyHashFilters(saved);
             });
         }
     });
