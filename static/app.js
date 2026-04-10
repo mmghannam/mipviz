@@ -77,11 +77,13 @@ function updateFilterPill() {
     }
     if (parts.length === 0) {
         filterPill.classList.add('hidden');
+        updateHashState();
         return;
     }
     filterPill.innerHTML = '<span class="filter-label">Filtered by</span> ' + parts.join(' + ') +
         ' <button class="filter-clear" onclick="clearAllFilters()">Clear all</button>';
     filterPill.classList.remove('hidden');
+    updateHashState();
 }
 
 function clearAllFilters() {
@@ -101,6 +103,28 @@ function clearAllFilters() {
     }
     applyFilters();
     updateFilterPill();
+}
+
+// --- URL hash state for filters ---
+
+function updateHashState() {
+    if (!currentInstanceName) return;
+    var hash = '#instance=' + encodeURIComponent(currentInstanceName);
+    if (activeTypeFilter) hash += '&type=' + encodeURIComponent(activeTypeFilter);
+    if (activeVarFilter) hash += '&var=' + encodeURIComponent(activeVarFilter);
+    history.replaceState(null, '', hash);
+}
+
+function parseHashParams() {
+    var hash = location.hash.slice(1);
+    var params = {};
+    hash.split('&').forEach(function(part) {
+        var eq = part.indexOf('=');
+        if (eq > 0) {
+            params[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1));
+        }
+    });
+    return params;
 }
 
 // --- Recents (localStorage) ---
@@ -719,9 +743,8 @@ fileInput.addEventListener('change', () => {
 
 async function loadInstanceFromUrl(name) {
     const url = MIPVIZ_INSTANCES_LFS + 'instances/' + encodeURIComponent(name) + '.mps.gz';
-    setStatus('Loading ' + name + '…', 'loading');
-    uploadSection.classList.add('hidden');
-    heroSection.classList.add('hidden');
+    showLoadingSkeleton();
+    modelNameEl.textContent = name;
 
     try {
         const response = await fetch(url);
@@ -820,6 +843,16 @@ function setStatus(msg, type) {
     uploadStatus.textContent = msg;
     uploadStatus.className = 'upload-status ' + (type || '');
     uploadStatus.classList.remove('hidden');
+}
+
+function showLoadingSkeleton() {
+    uploadSection.classList.add('hidden');
+    heroSection.classList.add('hidden');
+    resultsSection.classList.remove('hidden');
+    modelNameEl.textContent = '';
+    statsGrid.innerHTML = Array(6).fill(
+        '<div class="stat-card skeleton"><span class="stat-value">&nbsp;</span><span class="stat-label">&nbsp;</span></div>'
+    ).join('');
 }
 
 function showResults() {
@@ -2933,18 +2966,44 @@ window.addEventListener('popstate', (e) => {
 
 // MIPVIZ_INSTANCES_BASE and MIPVIZ_INSTANCES_LFS are defined in config.js
 
+// Apply filters from URL hash params after model is loaded and rendered
+function applyHashFilters() {
+    var params = parseHashParams();
+    if (!params.type && !params.var) return;
+    // Wait for deferred rendering (classifyConstraints, renderConstraintsInit) to finish
+    setTimeout(function() {
+        if (params.type && modelData) {
+            activeTypeFilter = params.type;
+            var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(params.type) + '"]');
+            if (tag) tag.classList.add('active');
+        }
+        if (params.var && modelData) {
+            activeVarFilter = params.var;
+            document.querySelectorAll('.var-hover').forEach(function(s) {
+                if (s.dataset.var === params.var) s.classList.add('var-highlight-persist');
+            });
+        }
+        applyFilters();
+        var constraintsDetails = constraintsList.closest('details');
+        if (constraintsDetails && !constraintsDetails.open) constraintsDetails.open = true;
+    }, 300);
+}
+
 // Load instance from URL on page load
 (function() {
-    // #instance={name} (from instance bank page or direct link)
-    if (location.hash.startsWith('#instance=')) {
-        const name = decodeURIComponent(location.hash.slice('#instance='.length));
-        loadInstanceFromUrl(name);
+    var params = parseHashParams();
+    if (params.instance) {
+        loadInstanceFromUrl(params.instance).then(function() {
+            applyHashFilters();
+        });
     }
     // Handle hash changes while on the same page (e.g. nav search)
     window.addEventListener('hashchange', function() {
-        if (location.hash.startsWith('#instance=')) {
-            const name = decodeURIComponent(location.hash.slice('#instance='.length));
-            loadInstanceFromUrl(name);
+        var p = parseHashParams();
+        if (p.instance) {
+            loadInstanceFromUrl(p.instance).then(function() {
+                applyHashFilters();
+            });
         }
     });
 })();

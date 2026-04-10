@@ -801,6 +801,27 @@ main {
     font-weight: 500;
 }
 
+/* Loading skeleton */
+.stat-card.skeleton .stat-value,
+.stat-card.skeleton .stat-label {
+    background: var(--border-subtle);
+    color: transparent;
+    border-radius: 4px;
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+.stat-card.skeleton .stat-value {
+    width: 60%;
+    height: 24px;
+}
+.stat-card.skeleton .stat-label {
+    width: 80%;
+    height: 11px;
+}
+@keyframes shimmer {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+}
+
 .stat-card.accent-blue .stat-value { color: var(--orange); }
 .stat-card.accent-green .stat-value { color: var(--green); }
 .stat-card.accent-orange .stat-value { color: var(--accent); }
