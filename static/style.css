@@ -630,6 +630,21 @@ main {
     font-weight: 400;
 }
 
+.instance-meta {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.instance-meta.hidden { display: none; }
+.instance-meta .instance-status,
+.instance-meta .miplib-tag,
+.instance-meta .collection-tag {
+    font-size: 10px;
+    padding: 2px 8px;
+}
+
 .results-actions {
     display: flex;
     gap: 8px;

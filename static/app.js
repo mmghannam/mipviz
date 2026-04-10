@@ -127,6 +127,93 @@ function parseHashParams() {
     return params;
 }
 
+// --- Instance metadata (tags, collections) ---
+
+var _miplibMeta = null;
+var _collections = null;
+var _metaPromise = null;
+
+function collectionColor(name) {
+    var hash = 0;
+    for (var i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        hash = hash & hash;
+    }
+    var hue = ((hash % 360) + 360) % 360;
+    return 'hsl(' + hue + ', 70%, 65%)';
+}
+
+function fetchInstanceMeta() {
+    if (_metaPromise) return _metaPromise;
+    var GITHUB_API_URL = 'https://api.github.com/repos/mmghannam/mipviz-instances/contents/collections';
+    _metaPromise = Promise.all([
+        fetch(MIPVIZ_INSTANCES_BASE + 'miplib-metadata.json').then(function(r) { return r.json(); }).catch(function() { return []; }),
+        fetch(GITHUB_API_URL).then(function(r) { return r.json(); }).then(function(files) {
+            if (!Array.isArray(files)) return {};
+            return Promise.all(
+                files.filter(function(f) { return f.name.endsWith('.txt'); }).map(function(f) {
+                    return fetch(f.download_url).then(function(r) { return r.text(); }).then(function(text) {
+                        return { name: f.name.replace('.txt', ''), instances: text.trim().split('\n') };
+                    });
+                })
+            ).then(function(colls) {
+                var map = {};
+                colls.forEach(function(c) {
+                    c.instances.forEach(function(inst) {
+                        if (!map[inst]) map[inst] = [];
+                        map[inst].push(c.name);
+                    });
+                });
+                return map;
+            });
+        }).catch(function() { return {}; })
+    ]).then(function(results) {
+        var metaArr = results[0];
+        _miplibMeta = {};
+        metaArr.forEach(function(m) { _miplibMeta[m.name] = m; });
+        _collections = results[1];
+    });
+    return _metaPromise;
+}
+
+function renderInstanceMeta(instanceName) {
+    var metaEl = document.getElementById('instance-meta');
+    if (!metaEl) return;
+    if (!instanceName || (!_miplibMeta && !_collections)) {
+        metaEl.classList.add('hidden');
+        return;
+    }
+    var html = '';
+    var skip = { benchmark: 1, benchmark_suitable: 1, easy: 1, hard: 1, open: 1, no_solution: 1 };
+    // Status
+    var meta = _miplibMeta ? _miplibMeta[instanceName] : null;
+    if (meta && meta.status) {
+        var cls = meta.status === 'easy' ? 'status-easy' : meta.status === 'hard' ? 'status-hard' : 'status-open';
+        html += '<span class="instance-status ' + cls + '">' + meta.status + '</span>';
+    }
+    // MIPLIB tags
+    if (meta && meta.tags) {
+        meta.tags.filter(function(t) { return !skip[t]; }).forEach(function(t) {
+            var color = collectionColor('miplib_' + t);
+            html += '<span class="miplib-tag" style="color:' + color + ';border-color:' + color + '">' + t.replace(/_/g, ' ') + '</span>';
+        });
+    }
+    // Collections
+    var colls = _collections ? _collections[instanceName] : null;
+    if (colls) {
+        colls.forEach(function(c) {
+            var color = collectionColor(c);
+            html += '<span class="collection-tag" style="color:' + color + ';border-color:' + color + '">' + c.replace(/_/g, ' ') + '</span>';
+        });
+    }
+    if (html) {
+        metaEl.innerHTML = html;
+        metaEl.classList.remove('hidden');
+    } else {
+        metaEl.classList.add('hidden');
+    }
+}
+
 // --- Recents (localStorage) ---
 // Each entry: { name, source: 'instance' | 'upload', fileName? }
 // Uploaded file content stored separately as 'mipviz_file:<fileName>'
@@ -745,6 +832,8 @@ async function loadInstanceFromUrl(name) {
     const url = MIPVIZ_INSTANCES_LFS + 'instances/' + encodeURIComponent(name) + '.mps.gz';
     showLoadingSkeleton();
     modelNameEl.textContent = name;
+    // Start metadata fetch in parallel (non-blocking)
+    var metaReady = fetchInstanceMeta();
 
     try {
         const response = await fetch(url);
@@ -784,6 +873,8 @@ async function loadInstanceFromUrl(name) {
         history.replaceState(null, '', '#instance=' + encodeURIComponent(name));
         addRecent(name);
         await showResults();
+        // Render tags/collections once metadata is ready
+        metaReady.then(function() { renderInstanceMeta(name); }).catch(function() {});
     } catch (err) {
         setStatus('Error: ' + err.message, 'error');
         uploadSection.classList.remove('hidden');
@@ -867,6 +958,8 @@ function showResults() {
     solveLpBtn.classList.remove('active');
     cliquesPanel.classList.add('hidden');
     symmetryPanel.classList.add('hidden');
+    var metaEl = document.getElementById('instance-meta');
+    if (metaEl) metaEl.classList.add('hidden');
     if (typeof resetLagrangianPanel === 'function') resetLagrangianPanel();
 
     document.getElementById('loading-details').classList.add('hidden');
