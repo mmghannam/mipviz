@@ -783,7 +783,7 @@ async function loadInstanceFromUrl(name) {
         document.title = name + ' — mipviz';
         history.replaceState(null, '', '#instance=' + encodeURIComponent(name));
         addRecent(name);
-        showResults();
+        await showResults();
     } catch (err) {
         setStatus('Error: ' + err.message, 'error');
         uploadSection.classList.remove('hidden');
@@ -885,16 +885,20 @@ function showResults() {
     renderStats(modelData.stats);
 
     // Phase 2: deferred — heavier work, yields to let the browser paint
-    requestAnimationFrame(function() {
-        classifyConstraints();
-        renderStats(modelData.stats); // re-render with constraint type tags
-        renderRanges();
+    // Returns a promise that resolves when all rendering is done
+    return new Promise(function(resolve) {
         requestAnimationFrame(function() {
-            renderSparsityPlot();
+            classifyConstraints();
+            renderStats(modelData.stats); // re-render with constraint type tags
+            renderRanges();
             requestAnimationFrame(function() {
-                renderObjective();
-                renderVariablesInit();
-                renderConstraintsInit();
+                renderSparsityPlot();
+                requestAnimationFrame(function() {
+                    renderObjective();
+                    renderVariablesInit();
+                    renderConstraintsInit();
+                    resolve();
+                });
             });
         });
     });
@@ -2970,23 +2974,20 @@ window.addEventListener('popstate', (e) => {
 function applyHashFilters() {
     var params = parseHashParams();
     if (!params.type && !params.var) return;
-    // Wait for deferred rendering (classifyConstraints, renderConstraintsInit) to finish
-    setTimeout(function() {
-        if (params.type && modelData) {
-            activeTypeFilter = params.type;
-            var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(params.type) + '"]');
-            if (tag) tag.classList.add('active');
-        }
-        if (params.var && modelData) {
-            activeVarFilter = params.var;
-            document.querySelectorAll('.var-hover').forEach(function(s) {
-                if (s.dataset.var === params.var) s.classList.add('var-highlight-persist');
-            });
-        }
-        applyFilters();
-        var constraintsDetails = constraintsList.closest('details');
-        if (constraintsDetails && !constraintsDetails.open) constraintsDetails.open = true;
-    }, 300);
+    if (params.type && modelData) {
+        activeTypeFilter = params.type;
+        var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(params.type) + '"]');
+        if (tag) tag.classList.add('active');
+    }
+    if (params.var && modelData) {
+        activeVarFilter = params.var;
+        document.querySelectorAll('.var-hover').forEach(function(s) {
+            if (s.dataset.var === params.var) s.classList.add('var-highlight-persist');
+        });
+    }
+    applyFilters();
+    var constraintsDetails = constraintsList.closest('details');
+    if (constraintsDetails && !constraintsDetails.open) constraintsDetails.open = true;
 }
 
 // Load instance from URL on page load
