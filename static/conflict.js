@@ -89,7 +89,7 @@ let cliquesOf = null;       // Map<nodeKey, cliqueIndex[]>
 document.title = instanceName + ' — Conflict Graph';
 
 API.ensureReady().then(() => {
-    return fetch('https://media.githubusercontent.com/media/mmghannam/mipviz-instances/main/instances/' + encodeURIComponent(instanceName) + '.mps.gz');
+    return fetch(MIPVIZ_INSTANCES_LFS + 'instances/' + encodeURIComponent(instanceName) + '.mps.gz');
 }).then(res => {
     if (!res.ok) throw new Error('Instance not found');
     return res.blob();

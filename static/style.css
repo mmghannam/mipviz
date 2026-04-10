@@ -1941,6 +1941,11 @@ main {
     vertical-align: middle;
 }
 
+img.footer-logo[alt="HiGHS"] {
+    position: relative;
+    top: 2px;
+}
+
 .scip-light { display: none !important; }
 :root.light .scip-dark { display: none !important; }
 :root.light .scip-light { display: inline !important; }

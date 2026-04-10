@@ -3,7 +3,7 @@ const BATCH_SIZE = 500; // v51
 // Toast notification
 var toastEl = null;
 var toastTimer = null;
-function showToast(msg) {
+function showToast(msg, duration) {
     if (!toastEl) {
         toastEl = document.createElement('div');
         toastEl.className = 'toast';
@@ -15,7 +15,7 @@ function showToast(msg) {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function() {
         toastEl.classList.add('toast-fade');
-    }, 1500);
+    }, duration || (msg.toLowerCase().includes('error') ? 4000 : 1500));
 }
 const INF_THRESHOLD = 1e20;
 let modelData = null;
@@ -2884,9 +2884,7 @@ window.addEventListener('popstate', (e) => {
     }
 });
 
-// Load an instance by fetching its .mps.gz from the remote mipviz-instances repo
-const MIPVIZ_INSTANCES_BASE = 'https://raw.githubusercontent.com/mmghannam/mipviz-instances/main/';
-const MIPVIZ_INSTANCES_LFS = 'https://media.githubusercontent.com/media/mmghannam/mipviz-instances/main/';
+// MIPVIZ_INSTANCES_BASE and MIPVIZ_INSTANCES_LFS are defined in config.js
 
 // Load instance from URL on page load
 (function() {

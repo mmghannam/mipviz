@@ -8,7 +8,7 @@
     let selectedIndex = -1;
     const MAX_SHOWN = 20;
 
-    const statsUrl = 'https://raw.githubusercontent.com/mmghannam/mipviz-instances/main/instance-stats.json';
+    const statsUrl = MIPVIZ_INSTANCES_BASE + 'instance-stats.json';
 
     fetch(statsUrl)
         .then(res => res.json())

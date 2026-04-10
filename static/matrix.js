@@ -63,7 +63,7 @@
     document.title = instanceName + ' — Matrix Explorer';
 
     var dataPromise = API.ensureReady().then(function () {
-        return fetch('https://media.githubusercontent.com/media/mmghannam/mipviz-instances/main/instances/' + encodeURIComponent(instanceName) + '.mps.gz');
+        return fetch(MIPVIZ_INSTANCES_LFS + 'instances/' + encodeURIComponent(instanceName) + '.mps.gz');
     }).then(function (res) {
         if (!res.ok) throw new Error('Instance not found');
         return res.blob();
