@@ -1632,6 +1632,46 @@ main {
     to { transform: rotate(360deg); }
 }
 
+/* Active filter pill */
+.active-filter-pill {
+    position: sticky;
+    top: 60px;
+    z-index: 90;
+    margin: 0 0 12px;
+    padding: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.active-filter-pill.hidden { display: none; }
+.active-filter-pill .filter-label {
+    opacity: 0.6;
+    margin-right: 2px;
+}
+.active-filter-pill .filter-clear {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.active-filter-pill .filter-clear:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
 /* Component filter banner */
 .component-filter-banner {
     margin: 16px 0;

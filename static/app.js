@@ -60,6 +60,48 @@ const cliquesPanel = document.getElementById('cliques-panel');
 const symmetryPanel = document.getElementById('symmetry-panel');
 const solveLpBtn = document.getElementById('solve-lp-btn');
 const solveMipBtn = document.getElementById('solve-mip-btn');
+const filterPill = document.getElementById('active-filter-pill');
+
+function updateFilterPill() {
+    if (!filterPill) return;
+    var parts = [];
+    if (activeTypeFilter) parts.push('Type: <strong>' + escapeHtml(activeTypeFilter) + '</strong>');
+    if (activeVarFilter) {
+        var vName = modelData && modelData.variables[activeVarFilter] ? modelData.variables[activeVarFilter].name : 'x' + activeVarFilter;
+        parts.push('Variable: <strong>' + escapeHtml(vName) + '</strong>');
+    }
+    if (activeComponentFilter) parts.push('Component: <strong>' + activeComponentFilter.stat.index + '</strong>');
+    if (activeConstraintVarFilter != null) {
+        var cName = modelData && modelData.constraints[activeConstraintVarFilter] ? modelData.constraints[activeConstraintVarFilter].name : '#' + activeConstraintVarFilter;
+        parts.push('Constraint: <strong>' + escapeHtml(cName) + '</strong>');
+    }
+    if (parts.length === 0) {
+        filterPill.classList.add('hidden');
+        return;
+    }
+    filterPill.innerHTML = '<span class="filter-label">Filtered by</span> ' + parts.join(' + ') +
+        ' <button class="filter-clear" onclick="clearAllFilters()">Clear all</button>';
+    filterPill.classList.remove('hidden');
+}
+
+function clearAllFilters() {
+    if (activeTypeFilter) {
+        activeTypeFilter = null;
+        document.querySelectorAll('.type-tag').forEach(function(t) { t.classList.remove('active'); });
+    }
+    if (activeVarFilter) {
+        activeVarFilter = null;
+        document.querySelectorAll('.var-hover').forEach(function(s) { s.classList.remove('var-highlight-persist'); });
+    }
+    if (activeComponentFilter) {
+        clearComponentFilter();
+    }
+    if (typeof activeConstraintVarFilter !== 'undefined' && activeConstraintVarFilter != null) {
+        clearConstraintVarFilter();
+    }
+    applyFilters();
+    updateFilterPill();
+}
 
 // --- Recents (localStorage) ---
 // Each entry: { name, source: 'instance' | 'upload', fileName? }
@@ -900,6 +942,7 @@ function applyFilters() {
             row.classList.add('filtered-out');
         }
     });
+    updateFilterPill();
 }
 
 function renderStats(stats) {
@@ -2330,6 +2373,7 @@ function setComponentFilter(compIndex, meta) {
         stat: stat
     };
     renderComponentBanner();
+    updateFilterPill();
     renderVariablesInit();
     renderConstraintsInit();
     renderStats(modelData.stats);
@@ -2341,6 +2385,7 @@ function setComponentFilter(compIndex, meta) {
 function clearComponentFilter() {
     activeComponentFilter = null;
     renderComponentBanner();
+    updateFilterPill();
     renderVariablesInit();
     renderConstraintsInit();
     renderStats(modelData.stats);
@@ -2379,6 +2424,7 @@ function setConstraintVarFilter(conIdx) {
     });
     filteredConIndices = conIndices;
     renderConstraintVarFilterBanner(c, conIdx, varSet.size, conIndices.length);
+    updateFilterPill();
     renderVariablesInit();
     renderConstraintsInit();
     var vd = variablesList.closest('details'); if (vd && !vd.open) vd.open = true;
@@ -2390,6 +2436,7 @@ function clearConstraintVarFilter() {
     if (banner) banner.classList.add('hidden');
     filteredVarIndices = null;
     filteredConIndices = null;
+    updateFilterPill();
     renderVariablesInit();
     renderConstraintsInit();
 }
