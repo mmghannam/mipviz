@@ -261,6 +261,61 @@ function renderMiplibDetails(instanceName) {
     card.classList.remove('hidden');
 }
 
+// --- Curated instance notes (markdown) ---
+var _notesCache = {}; // name -> Promise<string | null>
+
+function fetchInstanceNote(name) {
+    if (_notesCache[name]) return _notesCache[name];
+    var url = MIPVIZ_INSTANCES_BASE + 'notes/' + encodeURIComponent(name) + '.md';
+    _notesCache[name] = fetch(url).then(function(r) {
+        if (!r.ok) return null;
+        return r.text();
+    }).catch(function() { return null; });
+    return _notesCache[name];
+}
+
+function rewriteNoteImages(containerEl, instanceName) {
+    var base = MIPVIZ_INSTANCES_BASE + 'notes/';
+    containerEl.querySelectorAll('img').forEach(function(img) {
+        var src = img.getAttribute('src') || '';
+        if (/^(https?:|data:|\/\/)/i.test(src)) return;
+        var clean = src.replace(/^\.\//, '');
+        // Allow paths like "images/foo.png" to resolve under notes/<name>/
+        img.src = base + encodeURIComponent(instanceName) + '/' + clean;
+        img.loading = 'lazy';
+    });
+    containerEl.querySelectorAll('a[href]').forEach(function(a) {
+        a.target = '_blank';
+        a.rel = 'noopener';
+    });
+}
+
+function renderInstanceNotes(instanceName) {
+    var card = document.getElementById('instance-notes');
+    var body = document.getElementById('instance-notes-body');
+    var summaryEl = document.getElementById('instance-notes-summary');
+    if (!card || !body) return;
+    card.classList.add('hidden');
+    card.removeAttribute('open');
+    body.innerHTML = '';
+    if (!instanceName || typeof marked === 'undefined') return;
+    fetchInstanceNote(instanceName).then(function(md) {
+        if (!md || document.getElementById('model-name').textContent.trim() !== instanceName) return;
+        var html;
+        try {
+            html = marked.parse(md, { breaks: false, gfm: true });
+        } catch (e) {
+            console.warn('Failed to render note for ' + instanceName, e);
+            return;
+        }
+        body.innerHTML = html;
+        rewriteNoteImages(body, instanceName);
+        var firstH = body.querySelector('h1, h2, h3');
+        if (summaryEl) summaryEl.textContent = firstH ? firstH.textContent : '';
+        card.classList.remove('hidden');
+    });
+}
+
 function renderInstanceMeta(instanceName) {
     var metaEl = document.getElementById('instance-meta');
     if (!metaEl) return;
@@ -963,6 +1018,7 @@ async function loadInstanceFromUrl(name) {
             renderInstanceMeta(name);
             renderMiplibDetails(name);
         }).catch(function() {});
+        renderInstanceNotes(name);
     } catch (err) {
         setStatus('Error: ' + err.message, 'error');
         uploadSection.classList.remove('hidden');
@@ -1050,6 +1106,8 @@ function showResults() {
     if (metaEl) metaEl.classList.add('hidden');
     var miplibCard = document.getElementById('miplib-details');
     if (miplibCard) { miplibCard.classList.add('hidden'); miplibCard.removeAttribute('open'); }
+    var notesCard = document.getElementById('instance-notes');
+    if (notesCard) { notesCard.classList.add('hidden'); notesCard.removeAttribute('open'); }
     if (typeof resetLagrangianPanel === 'function') resetLagrangianPanel();
 
     document.getElementById('loading-details').classList.add('hidden');

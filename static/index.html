@@ -137,6 +137,12 @@
                 <div id="miplib-details-body"></div>
             </details>
 
+            <!-- Curated notes (markdown from mipviz-instances/notes/<name>.md) -->
+            <details id="instance-notes" class="miplib-details hidden">
+                <summary class="section-header"><h3>Notes</h3><span id="instance-notes-summary" class="constraints-count"></span><span class="chevron"></span></summary>
+                <div id="instance-notes-body" class="instance-notes-body"></div>
+            </details>
+
             <!-- Constraint Types -->
             <div id="constraint-types" class="constraint-types"></div>
 
@@ -219,6 +225,7 @@
     <script src="./theme.js?v=1"></script>
     <script src="./config.js?v=1"></script>
     <script src="./api.js?v=1"></script>
+    <script src="./marked.min.js"></script>
     <script src="./nav-search.js?v=2"></script>
     <script src="./app.js?v=48"></script>
     <script src="./dirpicker.js?v=1"></script>
