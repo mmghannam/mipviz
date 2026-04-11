@@ -86,10 +86,18 @@ def write_graph_json(G, layout, obj, out_path, meta_extra=None):
     Positions are pre-computed here (via spring_layout) so the browser
     doesn't need to run its own force-directed layout.
     """
+    # Sigma's camera auto-fit works much better on larger coordinate
+    # spans (the existing conflict.js uses order-100 coordinates), so
+    # stretch the [-1, 1]-ish spring_layout output by a fixed factor.
+    POS_SCALE = 100.0
     nodes = []
     for node in sorted(G.nodes()):
         x, y = layout[node]
-        nodes.append({"id": str(node), "x": float(x), "y": float(y)})
+        nodes.append({
+            "id": str(node),
+            "x": float(x) * POS_SCALE,
+            "y": float(y) * POS_SCALE,
+        })
     edges = []
     for u, v, d in G.edges(data=True):
         edges.append({
