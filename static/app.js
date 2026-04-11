@@ -294,6 +294,19 @@ function rewriteNoteImages(containerEl, imageBase) {
     });
 }
 
+// Lazy-load the Sigma-based graph renderer the first time a note block
+// contains a `mipviz-graph` fenced code block.
+function renderNoteGraphBlocks(containerEl, imageBase) {
+    if (!containerEl) return;
+    var blocks = containerEl.querySelectorAll('pre > code.language-mipviz-graph');
+    if (!blocks.length) return;
+    import('./graph-notes.js?v=1').then(function(m) {
+        m.renderGraphBlocks(containerEl, imageBase);
+    }).catch(function(err) {
+        console.warn('Failed to load graph-notes.js', err);
+    });
+}
+
 // GitHub edit/create URLs for the mipviz-instances notes folder.
 var NOTES_REPO_EDIT_BASE = 'https://github.com/mmghannam/mipviz-instances/edit/main/notes/';
 var NOTES_REPO_NEW_BASE = 'https://github.com/mmghannam/mipviz-instances/new/main/notes';
@@ -368,7 +381,9 @@ function renderInstanceNotes(instanceName) {
             try {
                 instDiv.innerHTML = marked.parse(instanceMd, { breaks: false, gfm: true });
             } catch (e) { instDiv.innerHTML = ''; }
-            rewriteNoteImages(instDiv, notesBase + encodeURIComponent(instanceName) + '/');
+            var instBase = notesBase + encodeURIComponent(instanceName) + '/';
+            rewriteNoteImages(instDiv, instBase);
+            renderNoteGraphBlocks(instDiv, instBase);
             instDiv.appendChild(makeNoteFooter(
                 instanceName + '.md',
                 NOTES_REPO_EDIT_BASE + encodeURIComponent(instanceName) + '.md'
@@ -390,7 +405,9 @@ function renderInstanceNotes(instanceName) {
             try {
                 groupDiv.innerHTML = marked.parse(groupMd, { breaks: false, gfm: true });
             } catch (e) { groupDiv.innerHTML = ''; }
-            rewriteNoteImages(groupDiv, notesBase + 'groups/' + encodeURIComponent(group) + '/');
+            var groupBase = notesBase + 'groups/' + encodeURIComponent(group) + '/';
+            rewriteNoteImages(groupDiv, groupBase);
+            renderNoteGraphBlocks(groupDiv, groupBase);
             groupDiv.appendChild(makeNoteFooter(
                 'groups/' + group + '.md',
                 NOTES_REPO_EDIT_BASE + 'groups/' + encodeURIComponent(group) + '.md'

@@ -6,24 +6,28 @@ Variable names in the solution follow `x<i>_<j>_<c> 1` (edge (i,j) has
 colour c) and `c<k> 1` (colour k is used), so the graph and colouring
 are reconstructible without touching the MPS file.
 
-Outputs two PNGs to cache/chromaticindex/<name>/:
-    graph.png     — uncoloured edges
-    solution.png  — edges coloured by their assigned class
+Default output is a compact graph.json that the mipviz frontend
+renders interactively with Sigma.js. Use --png to additionally emit
+static graph.png / solution.png via matplotlib.
+
+Outputs to cache/chromaticindex/<name>/:
+    graph.json    — nodes (with layout positions) + coloured edges
+    graph.png     — (with --png) uncoloured edges
+    solution.png  — (with --png) edges coloured by their assigned class
 
 Usage:
     python scripts/render_chromaticindex.py chromaticindex32-8
+    python scripts/render_chromaticindex.py chromaticindex32-8 --png
 """
 
 import argparse
 import gzip
+import json
 import os
 import re
 import sys
 import urllib.request
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import networkx as nx
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,7 +80,48 @@ def build_graph(edges):
     return G
 
 
+def write_graph_json(G, layout, obj, out_path, meta_extra=None):
+    """Emit a compact JSON the mipviz frontend can render with Sigma.
+
+    Positions are pre-computed here (via spring_layout) so the browser
+    doesn't need to run its own force-directed layout.
+    """
+    nodes = []
+    for node in sorted(G.nodes()):
+        x, y = layout[node]
+        nodes.append({"id": str(node), "x": float(x), "y": float(y)})
+    edges = []
+    for u, v, d in G.edges(data=True):
+        edges.append({
+            "source": str(u),
+            "target": str(v),
+            "colour": int(d["colour"]),
+        })
+    colours_used = sorted({d["colour"] for _, _, d in G.edges(data=True)})
+    degs = dict(G.degree())
+    out = {
+        "meta": {
+            "nodes": G.number_of_nodes(),
+            "edges": G.number_of_edges(),
+            "max_degree": max(degs.values()) if degs else 0,
+            "min_degree": min(degs.values()) if degs else 0,
+            "num_colours": len(colours_used),
+            "chromatic_index": int(obj) if obj is not None else None,
+            **(meta_extra or {}),
+        },
+        "nodes": nodes,
+        "edges": edges,
+    }
+    with open(out_path, "w") as f:
+        json.dump(out, f, separators=(",", ":"))
+    print(f"Wrote {out_path}", file=sys.stderr)
+
+
 def draw(G, layout, path, title, coloured=False):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(figsize=(10, 10), dpi=150)
     ax.set_facecolor("white")
 
@@ -116,6 +161,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("name", help="Instance name, e.g. chromaticindex32-8")
     ap.add_argument("--seed", type=int, default=42, help="Layout seed")
+    ap.add_argument("--png", action="store_true",
+                    help="Also emit graph.png / solution.png via matplotlib")
     args = ap.parse_args()
 
     out_dir = os.path.join(OUT_BASE, args.name)
@@ -137,14 +184,21 @@ def main():
     print("Computing layout (this may take a few seconds)…", file=sys.stderr)
     layout = nx.spring_layout(G, seed=args.seed, iterations=200)
 
-    draw(G, layout,
-         os.path.join(out_dir, "graph.png"),
-         f"{args.name}: {n} vertices, {m} edges (max degree {max_deg})",
-         coloured=False)
-    draw(G, layout,
-         os.path.join(out_dir, "solution.png"),
-         f"{args.name}: optimal edge colouring with χ' = {int(obj)}",
-         coloured=True)
+    write_graph_json(
+        G, layout, obj,
+        os.path.join(out_dir, "graph.json"),
+        meta_extra={"name": args.name},
+    )
+
+    if args.png:
+        draw(G, layout,
+             os.path.join(out_dir, "graph.png"),
+             f"{args.name}: {n} vertices, {m} edges (max degree {max_deg})",
+             coloured=False)
+        draw(G, layout,
+             os.path.join(out_dir, "solution.png"),
+             f"{args.name}: optimal edge colouring with χ' = {int(obj)}",
+             coloured=True)
 
 
 if __name__ == "__main__":
