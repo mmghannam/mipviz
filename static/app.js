@@ -133,6 +133,20 @@ var _miplibMeta = null;
 var _collections = null;
 var _miplibDetails = null;
 var _metaPromise = null;
+var _groupIndex = null;
+
+function buildGroupIndex() {
+    if (_groupIndex || !_miplibDetails) return _groupIndex;
+    _groupIndex = {};
+    Object.keys(_miplibDetails).forEach(function(name) {
+        var g = _miplibDetails[name].group;
+        if (!g) return;
+        if (!_groupIndex[g]) _groupIndex[g] = [];
+        _groupIndex[g].push(name);
+    });
+    Object.keys(_groupIndex).forEach(function(k) { _groupIndex[k].sort(); });
+    return _groupIndex;
+}
 
 function collectionColor(name) {
     var hash = 0;
@@ -217,6 +231,25 @@ function renderMiplibDetails(instanceName) {
     }
     if (facts.length) {
         parts.push('<div class="miplib-facts">' + facts.join('') + '</div>');
+    }
+
+    // Related instances in the same group
+    if (d.group) {
+        var idx = buildGroupIndex();
+        var siblings = ((idx && idx[d.group]) || []).filter(function(n) {
+            return n !== instanceName;
+        });
+        if (siblings.length) {
+            parts.push(
+                '<div class="miplib-subheader">More in group <code class="miplib-group-code">' +
+                escapeHtml(d.group) + '</code></div>'
+            );
+            var chips = siblings.map(function(n) {
+                return '<a class="related-chip" href="#instance=' +
+                    encodeURIComponent(n) + '">' + escapeHtml(n) + '</a>';
+            }).join('');
+            parts.push('<div class="related-chips">' + chips + '</div>');
+        }
     }
 
     // Solutions table
