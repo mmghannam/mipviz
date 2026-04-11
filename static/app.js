@@ -294,8 +294,49 @@ function rewriteNoteImages(containerEl, imageBase) {
     });
 }
 
-// Writes the per-instance note and any matching group note into
-// #instance-notes-body. Returns {hasContent, summary}.
+// GitHub edit/create URLs for the mipviz-instances notes folder.
+var NOTES_REPO_EDIT_BASE = 'https://github.com/mmghannam/mipviz-instances/edit/main/notes/';
+var NOTES_REPO_NEW_BASE = 'https://github.com/mmghannam/mipviz-instances/new/main/notes';
+
+function makeNoteFooter(label, editUrl) {
+    var footer = document.createElement('div');
+    footer.className = 'note-footer';
+    footer.innerHTML =
+        '<a href="' + editUrl + '" target="_blank" rel="noopener">' +
+        'Edit on GitHub' + (label ? ' <span class="note-footer-file">(' + label + ')</span>' : '') +
+        '</a>';
+    return footer;
+}
+
+function makeEmptyNoteState(instanceName, group) {
+    var wrap = document.createElement('div');
+    wrap.className = 'note-empty';
+    var newInstanceUrl = NOTES_REPO_NEW_BASE +
+        '?filename=' + encodeURIComponent(instanceName + '.md');
+    var newGroupUrl = group
+        ? NOTES_REPO_NEW_BASE + '?filename=' + encodeURIComponent('groups/' + group + '.md')
+        : null;
+
+    wrap.innerHTML =
+        '<p>No notes yet for this instance. ' +
+        'Notes are curated in the public <a href="https://github.com/mmghannam/mipviz-instances" target="_blank" rel="noopener">mipviz-instances</a> repo and typically include:</p>' +
+        '<ul>' +
+        '<li>What the instance models (problem description, origin)</li>' +
+        '<li>Techniques, reformulations, or heuristics known to help</li>' +
+        '<li>Links to papers or original sources (every note must end with linked references)</li>' +
+        '</ul>' +
+        '<div class="note-empty-actions">' +
+        '<a class="btn-ghost" href="' + newInstanceUrl + '" target="_blank" rel="noopener">+ Add note for ' + escapeHtml(instanceName) + '</a>' +
+        (newGroupUrl
+            ? '<a class="btn-ghost" href="' + newGroupUrl + '" target="_blank" rel="noopener">+ Add group note for ' + escapeHtml(group) + '</a>'
+            : '') +
+        '</div>';
+    return wrap;
+}
+
+// Writes per-instance + group notes into #instance-notes-body.
+// Always returns hasContent:true for MIPLIB-known instances so the tab
+// stays visible with an empty-state invitation when no note file exists.
 function renderInstanceNotes(instanceName) {
     var body = document.getElementById('instance-notes-body');
     if (!body) return Promise.resolve({ hasContent: false, summary: '' });
@@ -304,7 +345,9 @@ function renderInstanceNotes(instanceName) {
         return Promise.resolve({ hasContent: false, summary: '' });
     }
     var meta = (_miplibDetails && _miplibDetails[instanceName]) || null;
-    var group = meta && meta.group ? meta.group : null;
+    // Notes tab is only shown for MIPLIB-known instances; uploaded files skip it.
+    if (!meta) return Promise.resolve({ hasContent: false, summary: '' });
+    var group = meta.group || null;
     var notesBase = MIPVIZ_INSTANCES_BASE + 'notes/';
 
     return Promise.all([
@@ -313,8 +356,6 @@ function renderInstanceNotes(instanceName) {
     ]).then(function(results) {
         var instanceMd = results[0];
         var groupMd = results[1];
-        if (!instanceMd && !groupMd) return { hasContent: false, summary: '' };
-
         var summary = '';
 
         if (instanceMd) {
@@ -324,6 +365,10 @@ function renderInstanceNotes(instanceName) {
                 instDiv.innerHTML = marked.parse(instanceMd, { breaks: false, gfm: true });
             } catch (e) { instDiv.innerHTML = ''; }
             rewriteNoteImages(instDiv, notesBase + encodeURIComponent(instanceName) + '/');
+            instDiv.appendChild(makeNoteFooter(
+                instanceName + '.md',
+                NOTES_REPO_EDIT_BASE + encodeURIComponent(instanceName) + '.md'
+            ));
             body.appendChild(instDiv);
             var firstH = instDiv.querySelector('h1, h2, h3');
             if (firstH) summary = firstH.textContent;
@@ -342,11 +387,20 @@ function renderInstanceNotes(instanceName) {
                 groupDiv.innerHTML = marked.parse(groupMd, { breaks: false, gfm: true });
             } catch (e) { groupDiv.innerHTML = ''; }
             rewriteNoteImages(groupDiv, notesBase + 'groups/' + encodeURIComponent(group) + '/');
+            groupDiv.appendChild(makeNoteFooter(
+                'groups/' + group + '.md',
+                NOTES_REPO_EDIT_BASE + 'groups/' + encodeURIComponent(group) + '.md'
+            ));
             body.appendChild(groupDiv);
             if (!summary) {
                 var gh = groupDiv.querySelector('h1, h2, h3');
                 summary = gh ? gh.textContent : ('group: ' + group);
             }
+        }
+
+        if (!instanceMd && !groupMd) {
+            body.appendChild(makeEmptyNoteState(instanceName, group));
+            summary = 'no notes yet';
         }
 
         return { hasContent: true, summary: summary };
