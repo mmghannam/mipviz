@@ -75,30 +75,8 @@ function makeContainer(data) {
     wrap.innerHTML =
         buildLegend(data.meta || {}, data) +
         '<div class="mpv-graph-canvas"></div>' +
-        '<div class="mpv-graph-hint">drag to pan · scroll to zoom · hover edges to see colour class</div>';
+        '<div class="mpv-graph-hint">drag to pan · scroll to zoom</div>';
     return wrap;
-}
-
-function attachTooltip(renderer, wrap) {
-    const tip = document.createElement('div');
-    tip.className = 'mpv-graph-tooltip';
-    tip.style.display = 'none';
-    wrap.appendChild(tip);
-
-    renderer.on('enterEdge', ({ edge }) => {
-        const g = renderer.getGraph();
-        const attrs = g.getEdgeAttributes(edge);
-        tip.innerHTML = `edge ${g.source(edge)}–${g.target(edge)} · colour ${attrs.colourClass}`;
-        tip.style.display = 'block';
-    });
-    renderer.on('leaveEdge', () => { tip.style.display = 'none'; });
-    renderer.on('moveBody', () => { tip.style.display = 'none'; });
-    wrap.querySelector('.mpv-graph-canvas').addEventListener('mousemove', (e) => {
-        if (tip.style.display !== 'block') return;
-        const rect = wrap.getBoundingClientRect();
-        tip.style.left = (e.clientX - rect.left + 10) + 'px';
-        tip.style.top = (e.clientY - rect.top + 10) + 'px';
-    });
 }
 
 async function renderOne(codeEl, imageBase) {
@@ -138,7 +116,6 @@ async function renderOne(codeEl, imageBase) {
         renderer = new Sigma(graph, canvas, {
             renderLabels: false,
             renderEdgeLabels: false,
-            enableEdgeEvents: true,
             defaultNodeColor: '#5a6170',
             minCameraRatio: 0.05,
             maxCameraRatio: 5,
@@ -152,7 +129,6 @@ async function renderOne(codeEl, imageBase) {
         return;
     }
     activeRenderers.set(wrap, renderer);
-    attachTooltip(renderer, wrap);
 
     // Sigma auto-fits the camera during init IF the container has a valid
     // size. When we start inside a display:none pane, the fit is wrong, so
