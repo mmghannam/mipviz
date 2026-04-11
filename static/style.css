@@ -806,8 +806,21 @@ main {
     color: var(--text-muted);
     text-align: right;
 }
-.note-footer a { color: var(--text-muted); text-decoration: none; }
+.note-footer a {
+    color: var(--text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
 .note-footer a:hover { color: var(--accent); text-decoration: underline; }
+.note-footer .gh-mark { flex-shrink: 0; }
+.note-empty-actions .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.note-empty-actions .gh-mark { flex-shrink: 0; }
 .note-footer-file { color: var(--text-muted); opacity: 0.7; }
 
 .note-empty {
