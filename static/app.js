@@ -261,24 +261,31 @@ function renderMiplibDetails(instanceName) {
 // --- Curated instance notes (markdown) ---
 var _notesCache = {}; // name -> Promise<string | null>
 
-function fetchInstanceNote(name) {
-    if (_notesCache[name]) return _notesCache[name];
-    var url = MIPVIZ_INSTANCES_BASE + 'notes/' + encodeURIComponent(name) + '.md';
-    _notesCache[name] = fetch(url).then(function(r) {
+function fetchNoteAt(path) {
+    if (_notesCache[path]) return _notesCache[path];
+    var url = MIPVIZ_INSTANCES_BASE + path;
+    _notesCache[path] = fetch(url).then(function(r) {
         if (!r.ok) return null;
         return r.text();
     }).catch(function() { return null; });
-    return _notesCache[name];
+    return _notesCache[path];
 }
 
-function rewriteNoteImages(containerEl, instanceName) {
-    var base = MIPVIZ_INSTANCES_BASE + 'notes/';
+function fetchInstanceNote(name) {
+    return fetchNoteAt('notes/' + encodeURIComponent(name) + '.md');
+}
+
+function fetchGroupNote(group) {
+    if (!group) return Promise.resolve(null);
+    return fetchNoteAt('notes/groups/' + encodeURIComponent(group) + '.md');
+}
+
+function rewriteNoteImages(containerEl, imageBase) {
     containerEl.querySelectorAll('img').forEach(function(img) {
         var src = img.getAttribute('src') || '';
         if (/^(https?:|data:|\/\/)/i.test(src)) return;
         var clean = src.replace(/^\.\//, '');
-        // Allow paths like "images/foo.png" to resolve under notes/<name>/
-        img.src = base + encodeURIComponent(instanceName) + '/' + clean;
+        img.src = imageBase + clean;
         img.loading = 'lazy';
     });
     containerEl.querySelectorAll('a[href]').forEach(function(a) {
@@ -287,8 +294,8 @@ function rewriteNoteImages(containerEl, instanceName) {
     });
 }
 
-// Writes markdown note content into #instance-notes-body.
-// Returns a Promise that resolves to {hasContent, summary}.
+// Writes the per-instance note and any matching group note into
+// #instance-notes-body. Returns {hasContent, summary}.
 function renderInstanceNotes(instanceName) {
     var body = document.getElementById('instance-notes-body');
     if (!body) return Promise.resolve({ hasContent: false, summary: '' });
@@ -296,19 +303,53 @@ function renderInstanceNotes(instanceName) {
     if (!instanceName || typeof marked === 'undefined') {
         return Promise.resolve({ hasContent: false, summary: '' });
     }
-    return fetchInstanceNote(instanceName).then(function(md) {
-        if (!md) return { hasContent: false, summary: '' };
-        var html;
-        try {
-            html = marked.parse(md, { breaks: false, gfm: true });
-        } catch (e) {
-            console.warn('Failed to render note for ' + instanceName, e);
-            return { hasContent: false, summary: '' };
+    var meta = (_miplibDetails && _miplibDetails[instanceName]) || null;
+    var group = meta && meta.group ? meta.group : null;
+    var notesBase = MIPVIZ_INSTANCES_BASE + 'notes/';
+
+    return Promise.all([
+        fetchInstanceNote(instanceName),
+        fetchGroupNote(group),
+    ]).then(function(results) {
+        var instanceMd = results[0];
+        var groupMd = results[1];
+        if (!instanceMd && !groupMd) return { hasContent: false, summary: '' };
+
+        var summary = '';
+
+        if (instanceMd) {
+            var instDiv = document.createElement('div');
+            instDiv.className = 'note-block note-block-instance';
+            try {
+                instDiv.innerHTML = marked.parse(instanceMd, { breaks: false, gfm: true });
+            } catch (e) { instDiv.innerHTML = ''; }
+            rewriteNoteImages(instDiv, notesBase + encodeURIComponent(instanceName) + '/');
+            body.appendChild(instDiv);
+            var firstH = instDiv.querySelector('h1, h2, h3');
+            if (firstH) summary = firstH.textContent;
         }
-        body.innerHTML = html;
-        rewriteNoteImages(body, instanceName);
-        var firstH = body.querySelector('h1, h2, h3');
-        return { hasContent: true, summary: firstH ? firstH.textContent : '' };
+
+        if (groupMd) {
+            if (instanceMd) {
+                var sep = document.createElement('div');
+                sep.className = 'note-group-label';
+                sep.textContent = 'Group: ' + group;
+                body.appendChild(sep);
+            }
+            var groupDiv = document.createElement('div');
+            groupDiv.className = 'note-block note-block-group';
+            try {
+                groupDiv.innerHTML = marked.parse(groupMd, { breaks: false, gfm: true });
+            } catch (e) { groupDiv.innerHTML = ''; }
+            rewriteNoteImages(groupDiv, notesBase + 'groups/' + encodeURIComponent(group) + '/');
+            body.appendChild(groupDiv);
+            if (!summary) {
+                var gh = groupDiv.querySelector('h1, h2, h3');
+                summary = gh ? gh.textContent : ('group: ' + group);
+            }
+        }
+
+        return { hasContent: true, summary: summary };
     });
 }
 

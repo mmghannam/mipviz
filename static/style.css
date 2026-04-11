@@ -797,6 +797,20 @@ main {
     border: 1px solid var(--border-subtle);
     margin: 10px 0;
 }
+.note-group-label {
+    margin: 24px 0 8px;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 16px;
+}
+.note-block > *:first-child { margin-top: 0; }
+.note-block > *:last-child { margin-bottom: 0; }
+
 .instance-notes-body hr {
     border: none;
     border-top: 1px solid var(--border-subtle);
