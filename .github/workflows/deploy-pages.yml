@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -21,12 +21,27 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          path: dev-src
+        continue-on-error: true
 
       - name: Build site
         run: |
           mkdir -p _site
-          cp -r static/* _site/
+          cp -r main-src/static/* _site/
+          if [ -d dev-src/static ]; then
+            mkdir -p _site/dev
+            cp -r dev-src/static/* _site/dev/
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
