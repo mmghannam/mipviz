@@ -131,6 +131,7 @@ function parseHashParams() {
 
 var _miplibMeta = null;
 var _collections = null;
+var _miplibDetails = null;
 var _metaPromise = null;
 
 function collectionColor(name) {
@@ -166,14 +167,98 @@ function fetchInstanceMeta() {
                 });
                 return map;
             });
-        }).catch(function() { return {}; })
+        }).catch(function() { return {}; }),
+        fetch(MIPVIZ_INSTANCES_BASE + 'miplib-details.json').then(function(r) { return r.json(); }).catch(function() { return {}; })
     ]).then(function(results) {
         var metaArr = results[0];
         _miplibMeta = {};
         metaArr.forEach(function(m) { _miplibMeta[m.name] = m; });
         _collections = results[1];
+        _miplibDetails = results[2] || {};
     });
     return _metaPromise;
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderMiplibDetails(instanceName) {
+    var card = document.getElementById('miplib-details');
+    if (!card) return;
+    var body = document.getElementById('miplib-details-body');
+    var summaryCount = document.getElementById('miplib-details-summary');
+    var d = (_miplibDetails && instanceName) ? _miplibDetails[instanceName] : null;
+    if (!d) { card.classList.add('hidden'); return; }
+
+    var parts = [];
+    if (d.description) {
+        parts.push('<p class="miplib-description">' + escapeHtml(d.description) + '</p>');
+    }
+
+    // Facts grid
+    var facts = [];
+    function addFact(label, value) {
+        if (value == null || value === '' || value === '-') return;
+        facts.push(
+            '<div><span class="miplib-fact-label">' + escapeHtml(label) + '</span>' +
+            '<span class="miplib-fact-value">' + value + '</span></div>'
+        );
+    }
+    addFact('Submitter', escapeHtml(d.submitter));
+    addFact('Objective', escapeHtml(d.objective));
+    addFact('Density', escapeHtml(d.density));
+    addFact('Group', escapeHtml(d.group));
+    if (d.mps_file_url) {
+        addFact('Download', '<a href="' + escapeHtml(d.mps_file_url) + '" target="_blank" rel="noopener">.mps.gz</a>');
+    }
+    if (facts.length) {
+        parts.push('<div class="miplib-facts">' + facts.join('') + '</div>');
+    }
+
+    // Solutions table
+    var sols = Array.isArray(d.solutions) ? d.solutions : [];
+    if (sols.length) {
+        parts.push('<div class="miplib-subheader">Best known solutions</div>');
+        var rows = sols.map(function(s) {
+            var idCell = s.download_url
+                ? '<a href="' + escapeHtml(s.download_url) + '" target="_blank" rel="noopener">' + escapeHtml(s.id) + '</a>'
+                : escapeHtml(s.id);
+            return '<tr>' +
+                '<td>' + idCell + '</td>' +
+                '<td class="num">' + escapeHtml(s.objective) + '</td>' +
+                '<td>' + escapeHtml(s.date) + '</td>' +
+                '<td>' + escapeHtml(s.submitter === '-' ? '' : s.submitter) + '</td>' +
+                '<td>' + escapeHtml(s.description) + '</td>' +
+                '</tr>';
+        }).join('');
+        parts.push(
+            '<table class="miplib-solutions"><thead><tr>' +
+            '<th>ID</th><th>Objective</th><th>Date</th><th>Submitter</th><th>Description</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table>'
+        );
+    }
+
+    // Reference (only when it looks like real bibtex)
+    var ref = d.reference_bibtex;
+    if (ref && /^\s*@/.test(ref)) {
+        parts.push('<div class="miplib-subheader">Reference</div>');
+        parts.push('<div class="miplib-bibtex"><pre>' + escapeHtml(ref) + '</pre></div>');
+    }
+
+    if (!parts.length) { card.classList.add('hidden'); return; }
+
+    body.className = 'miplib-details-body';
+    body.innerHTML = parts.join('');
+    if (summaryCount) {
+        var bits = [];
+        if (d.submitter) bits.push(d.submitter);
+        if (sols.length) bits.push(sols.length + ' solution' + (sols.length === 1 ? '' : 's'));
+        summaryCount.textContent = bits.join(' · ');
+    }
+    card.classList.remove('hidden');
 }
 
 function renderInstanceMeta(instanceName) {
@@ -873,8 +958,11 @@ async function loadInstanceFromUrl(name) {
         history.replaceState(null, '', '#instance=' + encodeURIComponent(name));
         addRecent(name);
         await showResults();
-        // Render tags/collections once metadata is ready
-        metaReady.then(function() { renderInstanceMeta(name); }).catch(function() {});
+        // Render tags/collections + MIPLIB details once metadata is ready
+        metaReady.then(function() {
+            renderInstanceMeta(name);
+            renderMiplibDetails(name);
+        }).catch(function() {});
     } catch (err) {
         setStatus('Error: ' + err.message, 'error');
         uploadSection.classList.remove('hidden');
@@ -960,6 +1048,8 @@ function showResults() {
     symmetryPanel.classList.add('hidden');
     var metaEl = document.getElementById('instance-meta');
     if (metaEl) metaEl.classList.add('hidden');
+    var miplibCard = document.getElementById('miplib-details');
+    if (miplibCard) { miplibCard.classList.add('hidden'); miplibCard.removeAttribute('open'); }
     if (typeof resetLagrangianPanel === 'function') resetLagrangianPanel();
 
     document.getElementById('loading-details').classList.add('hidden');
