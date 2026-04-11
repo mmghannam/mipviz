@@ -154,29 +154,11 @@ async function renderOne(codeEl, imageBase) {
     activeRenderers.set(wrap, renderer);
     attachTooltip(renderer, wrap);
 
-    // Compute graph bounds once so we can fit the camera explicitly.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    graph.forEachNode((_, a) => {
-        if (a.x < minX) minX = a.x;
-        if (a.x > maxX) maxX = a.x;
-        if (a.y < minY) minY = a.y;
-        if (a.y > maxY) maxY = a.y;
-    });
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    const span = Math.max(maxX - minX, maxY - minY) || 1;
-
-    function fitCamera() {
-        try {
-            const cam = renderer.getCamera();
-            cam.setState({ x: centerX, y: centerY, ratio: span * 1.1, angle: 0 });
-        } catch {}
-    }
-
-    // Refresh + fit when the canvas finally has a real size (e.g. after the
-    // user opens the Notes tab on the About card). Sigma paints to 300x150
-    // until then, and its auto-fit only runs during a valid init.
-    let lastW = 0, lastH = 0, fitted = false;
+    // Sigma auto-fits the camera during init IF the container has a valid
+    // size. When we start inside a display:none pane, the fit is wrong, so
+    // wait for the first real resize and then ask Sigma to recompute by
+    // resetting the camera to its default state.
+    let lastW = 0, lastH = 0;
     const ro = new ResizeObserver(entries => {
         for (const e of entries) {
             const { width, height } = e.contentRect;
@@ -184,15 +166,16 @@ async function renderOne(codeEl, imageBase) {
                 lastW = width; lastH = height;
                 try {
                     renderer.resize();
-                    if (!fitted) { fitCamera(); fitted = true; }
                     renderer.refresh();
+                    // animatedReset re-runs Sigma's natural "fit all nodes"
+                    // computation against the freshly-sized viewport.
+                    const cam = renderer.getCamera();
+                    cam.animatedReset({ duration: 0 });
                 } catch {}
             }
         }
     });
     ro.observe(canvas);
-    // Also fit immediately in case init already had a valid size.
-    fitCamera();
 
     // Observe removal to free WebGL resources
     const obs = new MutationObserver(() => {
