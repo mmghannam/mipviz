@@ -30,22 +30,34 @@ function colourFor(idx) {
     return COLOUR_PALETTE[idx % COLOUR_PALETTE.length];
 }
 
+function adaptiveSizes(nodeCount) {
+    // Big dense graphs look like blobs with default pixel sizes —
+    // shrink both nodes and edges as the graph grows. The numeric
+    // constants were picked by eyeballing the chromaticindex family
+    // (384 → 12288 nodes) so small instances stay dot-sized (~2.5 px)
+    // and the 12k-node one falls back to near-hairline nodes.
+    const nodeSize = Math.max(0.5, Math.min(2.5, 60 / Math.sqrt(nodeCount)));
+    const edgeSize = Math.max(0.4, Math.min(1.6, 40 / Math.sqrt(nodeCount)));
+    return { nodeSize, edgeSize };
+}
+
 function buildGraph(data) {
+    const { nodeSize, edgeSize } = adaptiveSizes(data.nodes.length);
     const g = new Graph({ type: 'undirected', multi: false });
     for (const n of data.nodes) {
         g.addNode(n.id, {
             x: n.x,
             y: n.y,
-            size: 2,
+            size: nodeSize,
             color: '#5a6170',
             label: n.id,
         });
     }
     for (const e of data.edges) {
-        const key = `${e.source}--${e.target}`;
         if (g.hasEdge(e.source, e.target)) continue;
+        const key = `${e.source}--${e.target}`;
         g.addEdgeWithKey(key, e.source, e.target, {
-            size: 2,
+            size: edgeSize,
             color: colourFor(e.colour),
             colourClass: e.colour,
         });
