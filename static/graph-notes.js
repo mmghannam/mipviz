@@ -132,21 +132,48 @@ async function renderOne(codeEl, imageBase) {
 
     const graph = buildGraph(data);
     const canvas = wrap.querySelector('.mpv-graph-canvas');
-    const renderer = new Sigma(graph, canvas, {
-        renderLabels: false,
-        renderEdgeLabels: false,
-        enableEdgeEvents: true,
-        defaultNodeColor: '#5a6170',
-        minCameraRatio: 0.05,
-        maxCameraRatio: 5,
-    });
+
+    let renderer;
+    try {
+        renderer = new Sigma(graph, canvas, {
+            renderLabels: false,
+            renderEdgeLabels: false,
+            enableEdgeEvents: true,
+            defaultNodeColor: '#5a6170',
+            minCameraRatio: 0.05,
+            maxCameraRatio: 5,
+            // Notes pane may be display:none when this runs — init anyway,
+            // then refresh once the container gets a real size.
+            allowInvalidContainer: true,
+        });
+    } catch (err) {
+        console.warn('Sigma init failed', err);
+        wrap.innerHTML = '<div class="mpv-graph-error">graph renderer failed to start</div>';
+        return;
+    }
     activeRenderers.set(wrap, renderer);
     attachTooltip(renderer, wrap);
+
+    // Refresh when the canvas finally has a real size (e.g. after the user
+    // opens the Notes tab on the About card). Sigma paints to 300x150 until
+    // then.
+    let lastW = 0, lastH = 0;
+    const ro = new ResizeObserver(entries => {
+        for (const e of entries) {
+            const { width, height } = e.contentRect;
+            if (width > 0 && height > 0 && (width !== lastW || height !== lastH)) {
+                lastW = width; lastH = height;
+                try { renderer.resize(); renderer.refresh(); } catch {}
+            }
+        }
+    });
+    ro.observe(canvas);
 
     // Observe removal to free WebGL resources
     const obs = new MutationObserver(() => {
         if (!document.body.contains(wrap)) {
-            renderer.kill();
+            try { renderer.kill(); } catch {}
+            ro.disconnect();
             obs.disconnect();
         }
     });
