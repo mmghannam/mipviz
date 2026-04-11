@@ -716,8 +716,36 @@ main {
 .miplib-bibtex {
     margin-top: 6px;
 }
+.instance-about-body { padding: 0; }
+.about-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 10px 14px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.about-tab {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.about-tab:hover { color: var(--text-secondary); }
+.about-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+}
+.about-tab.hidden { display: none; }
+.about-pane { padding: 14px 18px 18px; }
+.about-pane.hidden { display: none; }
+
 .instance-notes-body {
-    padding: 14px 18px 18px;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-secondary);

@@ -185,13 +185,14 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Writes MIPLIB info content into #miplib-details-body. Returns the
+// render result {hasContent, summary} without touching tab/card visibility.
 function renderMiplibDetails(instanceName) {
-    var card = document.getElementById('miplib-details');
-    if (!card) return;
     var body = document.getElementById('miplib-details-body');
-    var summaryCount = document.getElementById('miplib-details-summary');
+    if (!body) return { hasContent: false, summary: '' };
+    body.innerHTML = '';
     var d = (_miplibDetails && instanceName) ? _miplibDetails[instanceName] : null;
-    if (!d) { card.classList.add('hidden'); return; }
+    if (!d) return { hasContent: false, summary: '' };
 
     var parts = [];
     if (d.description) {
@@ -248,17 +249,13 @@ function renderMiplibDetails(instanceName) {
         parts.push('<div class="miplib-bibtex"><pre>' + escapeHtml(ref) + '</pre></div>');
     }
 
-    if (!parts.length) { card.classList.add('hidden'); return; }
+    if (!parts.length) return { hasContent: false, summary: '' };
 
-    body.className = 'miplib-details-body';
     body.innerHTML = parts.join('');
-    if (summaryCount) {
-        var bits = [];
-        if (d.submitter) bits.push(d.submitter);
-        if (sols.length) bits.push(sols.length + ' solution' + (sols.length === 1 ? '' : 's'));
-        summaryCount.textContent = bits.join(' · ');
-    }
-    card.classList.remove('hidden');
+    var bits = [];
+    if (d.submitter) bits.push(d.submitter);
+    if (sols.length) bits.push(sols.length + ' solution' + (sols.length === 1 ? '' : 's'));
+    return { hasContent: true, summary: bits.join(' · ') };
 }
 
 // --- Curated instance notes (markdown) ---
@@ -290,31 +287,92 @@ function rewriteNoteImages(containerEl, instanceName) {
     });
 }
 
+// Writes markdown note content into #instance-notes-body.
+// Returns a Promise that resolves to {hasContent, summary}.
 function renderInstanceNotes(instanceName) {
-    var card = document.getElementById('instance-notes');
     var body = document.getElementById('instance-notes-body');
-    var summaryEl = document.getElementById('instance-notes-summary');
-    if (!card || !body) return;
-    card.classList.add('hidden');
-    card.removeAttribute('open');
+    if (!body) return Promise.resolve({ hasContent: false, summary: '' });
     body.innerHTML = '';
-    if (!instanceName || typeof marked === 'undefined') return;
-    fetchInstanceNote(instanceName).then(function(md) {
-        if (!md || document.getElementById('model-name').textContent.trim() !== instanceName) return;
+    if (!instanceName || typeof marked === 'undefined') {
+        return Promise.resolve({ hasContent: false, summary: '' });
+    }
+    return fetchInstanceNote(instanceName).then(function(md) {
+        if (!md) return { hasContent: false, summary: '' };
         var html;
         try {
             html = marked.parse(md, { breaks: false, gfm: true });
         } catch (e) {
             console.warn('Failed to render note for ' + instanceName, e);
-            return;
+            return { hasContent: false, summary: '' };
         }
         body.innerHTML = html;
         rewriteNoteImages(body, instanceName);
         var firstH = body.querySelector('h1, h2, h3');
-        if (summaryEl) summaryEl.textContent = firstH ? firstH.textContent : '';
-        card.classList.remove('hidden');
+        return { hasContent: true, summary: firstH ? firstH.textContent : '' };
     });
 }
+
+// Orchestrator: render both panes, show/hide tabs, activate default.
+function renderInstanceAbout(instanceName) {
+    var card = document.getElementById('instance-about');
+    if (!card) return;
+    var miplibTab = card.querySelector('.about-tab[data-pane="miplib"]');
+    var notesTab = card.querySelector('.about-tab[data-pane="notes"]');
+    var miplibPane = document.getElementById('miplib-details-body');
+    var notesPane = document.getElementById('instance-notes-body');
+    var summaryEl = document.getElementById('instance-about-summary');
+
+    // Reset
+    card.classList.add('hidden');
+    card.removeAttribute('open');
+    miplibTab.classList.add('hidden');
+    notesTab.classList.add('hidden');
+    miplibTab.classList.remove('active');
+    notesTab.classList.remove('active');
+    miplibPane.classList.add('hidden');
+    notesPane.classList.add('hidden');
+    if (summaryEl) summaryEl.textContent = '';
+
+    var miplibResult = renderMiplibDetails(instanceName);
+    if (miplibResult.hasContent) {
+        miplibTab.classList.remove('hidden');
+        activateAboutTab('miplib');
+        if (summaryEl) summaryEl.textContent = miplibResult.summary || '';
+        card.classList.remove('hidden');
+    }
+
+    renderInstanceNotes(instanceName).then(function(notesResult) {
+        if (document.getElementById('model-name').textContent.trim() !== instanceName) return;
+        if (!notesResult.hasContent) return;
+        notesTab.classList.remove('hidden');
+        if (!miplibResult.hasContent) {
+            activateAboutTab('notes');
+            if (summaryEl) summaryEl.textContent = notesResult.summary || '';
+            card.classList.remove('hidden');
+        }
+    });
+}
+
+function activateAboutTab(pane) {
+    var card = document.getElementById('instance-about');
+    if (!card) return;
+    card.querySelectorAll('.about-tab').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.pane === pane);
+    });
+    card.querySelectorAll('.about-pane').forEach(function(p) {
+        p.classList.toggle('hidden', p.dataset.pane !== pane);
+    });
+}
+
+// Wire tab click handlers once at load.
+(function() {
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest && e.target.closest('.about-tab');
+        if (!btn) return;
+        e.preventDefault();
+        activateAboutTab(btn.dataset.pane);
+    });
+})();
 
 function renderInstanceMeta(instanceName) {
     var metaEl = document.getElementById('instance-meta');
@@ -1013,12 +1071,11 @@ async function loadInstanceFromUrl(name) {
         history.replaceState(null, '', '#instance=' + encodeURIComponent(name));
         addRecent(name);
         await showResults();
-        // Render tags/collections + MIPLIB details once metadata is ready
+        // Render tags/collections + about card (MIPLIB info + notes tabs)
         metaReady.then(function() {
             renderInstanceMeta(name);
-            renderMiplibDetails(name);
+            renderInstanceAbout(name);
         }).catch(function() {});
-        renderInstanceNotes(name);
     } catch (err) {
         setStatus('Error: ' + err.message, 'error');
         uploadSection.classList.remove('hidden');
@@ -1104,10 +1161,8 @@ function showResults() {
     symmetryPanel.classList.add('hidden');
     var metaEl = document.getElementById('instance-meta');
     if (metaEl) metaEl.classList.add('hidden');
-    var miplibCard = document.getElementById('miplib-details');
-    if (miplibCard) { miplibCard.classList.add('hidden'); miplibCard.removeAttribute('open'); }
-    var notesCard = document.getElementById('instance-notes');
-    if (notesCard) { notesCard.classList.add('hidden'); notesCard.removeAttribute('open'); }
+    var aboutCard = document.getElementById('instance-about');
+    if (aboutCard) { aboutCard.classList.add('hidden'); aboutCard.removeAttribute('open'); }
     if (typeof resetLagrangianPanel === 'function') resetLagrangianPanel();
 
     document.getElementById('loading-details').classList.add('hidden');

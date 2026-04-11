@@ -131,16 +131,17 @@
             <!-- Instance metadata (tags, collections) -->
             <div id="instance-meta" class="instance-meta hidden"></div>
 
-            <!-- MIPLIB details (description, submitter, solutions, reference) -->
-            <details id="miplib-details" class="miplib-details hidden">
-                <summary class="section-header"><h3>MIPLIB info</h3><span id="miplib-details-summary" class="constraints-count"></span><span class="chevron"></span></summary>
-                <div id="miplib-details-body"></div>
-            </details>
-
-            <!-- Curated notes (markdown from mipviz-instances/notes/<name>.md) -->
-            <details id="instance-notes" class="miplib-details hidden">
-                <summary class="section-header"><h3>Notes</h3><span id="instance-notes-summary" class="constraints-count"></span><span class="chevron"></span></summary>
-                <div id="instance-notes-body" class="instance-notes-body"></div>
+            <!-- About: MIPLIB info + curated notes, tabbed -->
+            <details id="instance-about" class="miplib-details hidden">
+                <summary class="section-header"><h3>About</h3><span id="instance-about-summary" class="constraints-count"></span><span class="chevron"></span></summary>
+                <div class="instance-about-body">
+                    <div class="about-tabs" role="tablist">
+                        <button class="about-tab hidden" data-pane="miplib" role="tab">MIPLIB info</button>
+                        <button class="about-tab hidden" data-pane="notes" role="tab">Notes</button>
+                    </div>
+                    <div id="miplib-details-body" class="about-pane" data-pane="miplib"></div>
+                    <div id="instance-notes-body" class="about-pane instance-notes-body hidden" data-pane="notes"></div>
+                </div>
             </details>
 
             <!-- Constraint Types -->
