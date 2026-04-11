@@ -80,6 +80,53 @@ def build_graph(edges):
     return G
 
 
+NOTE_TEMPLATE = """# {name}
+
+The instance encodes an edge-colouring problem on a graph with
+**{n:,} vertices and {m:,} edges** (maximum degree {d}). The optimal
+value is χ′ = {k} — i.e. {k} colour classes are enough to edge-colour
+this graph — recovered from MIPLIB's best-known solution file.
+
+Drag the graph to pan and scroll to zoom.
+
+```mipviz-graph
+graph.json
+```
+
+## Source and reproducibility
+
+The graph and its colouring come from MIPLIB's best-known solution
+file
+([`{name}.sol.gz`](https://miplib.zib.de/downloads/solutions/{name}/1/{name}.sol.gz)).
+Variable names in that file follow `x<i>_<j>_<c> 1` ("edge (i,j) has
+colour c"), so the graph and its colouring are reconstructible without
+touching the MPS file. The conversion to `graph.json` is done by
+[`scripts/render_chromaticindex.py`](https://github.com/mmghannam/mipviz/blob/main/scripts/render_chromaticindex.py)
+in the mipviz repo; the interactive view is powered by Sigma.js.
+
+See the group note on `chromaticindex` for the origin paper and
+further reading.
+"""
+
+
+def write_note_markdown(name, G, obj, out_path, force=False):
+    if os.path.exists(out_path) and not force:
+        print(f"Skipping existing {out_path} (use --force to overwrite)",
+              file=sys.stderr)
+        return
+    degs = dict(G.degree())
+    md = NOTE_TEMPLATE.format(
+        name=name,
+        n=G.number_of_nodes(),
+        m=G.number_of_edges(),
+        d=max(degs.values()) if degs else 0,
+        k=int(obj) if obj is not None else "?",
+    )
+    with open(out_path, "w") as f:
+        f.write(md)
+    print(f"Wrote {out_path}", file=sys.stderr)
+
+
 def write_graph_json(G, layout, obj, out_path, meta_extra=None):
     """Emit a compact JSON the mipviz frontend can render with Sigma.
 
@@ -169,8 +216,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("name", help="Instance name, e.g. chromaticindex32-8")
     ap.add_argument("--seed", type=int, default=42, help="Layout seed")
+    ap.add_argument("--iterations", type=int, default=200,
+                    help="spring_layout iterations (lower is faster)")
     ap.add_argument("--png", action="store_true",
                     help="Also emit graph.png / solution.png via matplotlib")
+    ap.add_argument("--note", action="store_true",
+                    help="Also emit a markdown note stub (<name>.md)")
+    ap.add_argument("--force", action="store_true",
+                    help="Overwrite existing note markdown if present")
     args = ap.parse_args()
 
     out_dir = os.path.join(OUT_BASE, args.name)
@@ -189,14 +242,21 @@ def main():
     print(f"{args.name}: {n} nodes, {m} edges, max degree {max_deg}, "
           f"χ'={int(obj)}, colours={colours_used}", file=sys.stderr)
 
-    print("Computing layout (this may take a few seconds)…", file=sys.stderr)
-    layout = nx.spring_layout(G, seed=args.seed, iterations=200)
+    print(f"Computing layout ({args.iterations} iterations)…", file=sys.stderr)
+    layout = nx.spring_layout(G, seed=args.seed, iterations=args.iterations)
 
     write_graph_json(
         G, layout, obj,
         os.path.join(out_dir, "graph.json"),
         meta_extra={"name": args.name},
     )
+
+    if args.note:
+        write_note_markdown(
+            args.name, G, obj,
+            os.path.join(out_dir, f"{args.name}.md"),
+            force=args.force,
+        )
 
     if args.png:
         draw(G, layout,
