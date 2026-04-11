@@ -133,6 +133,20 @@ var _miplibMeta = null;
 var _collections = null;
 var _miplibDetails = null;
 var _metaPromise = null;
+var _groupIndex = null;
+
+function buildGroupIndex() {
+    if (_groupIndex || !_miplibDetails) return _groupIndex;
+    _groupIndex = {};
+    Object.keys(_miplibDetails).forEach(function(name) {
+        var g = _miplibDetails[name].group;
+        if (!g) return;
+        if (!_groupIndex[g]) _groupIndex[g] = [];
+        _groupIndex[g].push(name);
+    });
+    Object.keys(_groupIndex).forEach(function(k) { _groupIndex[k].sort(); });
+    return _groupIndex;
+}
 
 function collectionColor(name) {
     var hash = 0;
@@ -219,6 +233,25 @@ function renderMiplibDetails(instanceName) {
         parts.push('<div class="miplib-facts">' + facts.join('') + '</div>');
     }
 
+    // Related instances in the same group
+    if (d.group) {
+        var idx = buildGroupIndex();
+        var siblings = ((idx && idx[d.group]) || []).filter(function(n) {
+            return n !== instanceName;
+        });
+        if (siblings.length) {
+            parts.push(
+                '<div class="miplib-subheader">More in group <code class="miplib-group-code">' +
+                escapeHtml(d.group) + '</code></div>'
+            );
+            var chips = siblings.map(function(n) {
+                return '<a class="related-chip" href="#instance=' +
+                    encodeURIComponent(n) + '">' + escapeHtml(n) + '</a>';
+            }).join('');
+            parts.push('<div class="related-chips">' + chips + '</div>');
+        }
+    }
+
     // Solutions table
     var sols = Array.isArray(d.solutions) ? d.solutions : [];
     if (sols.length) {
@@ -291,6 +324,19 @@ function rewriteNoteImages(containerEl, imageBase) {
     containerEl.querySelectorAll('a[href]').forEach(function(a) {
         a.target = '_blank';
         a.rel = 'noopener';
+    });
+}
+
+// Lazy-load the Sigma-based graph renderer the first time a note block
+// contains a `mipviz-graph` fenced code block.
+function renderNoteGraphBlocks(containerEl, imageBase) {
+    if (!containerEl) return;
+    var blocks = containerEl.querySelectorAll('pre > code.language-mipviz-graph');
+    if (!blocks.length) return;
+    import('./graph-notes.js?v=1').then(function(m) {
+        m.renderGraphBlocks(containerEl, imageBase);
+    }).catch(function(err) {
+        console.warn('Failed to load graph-notes.js', err);
     });
 }
 
@@ -368,7 +414,9 @@ function renderInstanceNotes(instanceName) {
             try {
                 instDiv.innerHTML = marked.parse(instanceMd, { breaks: false, gfm: true });
             } catch (e) { instDiv.innerHTML = ''; }
-            rewriteNoteImages(instDiv, notesBase + encodeURIComponent(instanceName) + '/');
+            var instBase = notesBase + encodeURIComponent(instanceName) + '/';
+            rewriteNoteImages(instDiv, instBase);
+            renderNoteGraphBlocks(instDiv, instBase);
             instDiv.appendChild(makeNoteFooter(
                 instanceName + '.md',
                 NOTES_REPO_EDIT_BASE + encodeURIComponent(instanceName) + '.md'
@@ -390,7 +438,9 @@ function renderInstanceNotes(instanceName) {
             try {
                 groupDiv.innerHTML = marked.parse(groupMd, { breaks: false, gfm: true });
             } catch (e) { groupDiv.innerHTML = ''; }
-            rewriteNoteImages(groupDiv, notesBase + 'groups/' + encodeURIComponent(group) + '/');
+            var groupBase = notesBase + 'groups/' + encodeURIComponent(group) + '/';
+            rewriteNoteImages(groupDiv, groupBase);
+            renderNoteGraphBlocks(groupDiv, groupBase);
             groupDiv.appendChild(makeNoteFooter(
                 'groups/' + group + '.md',
                 NOTES_REPO_EDIT_BASE + 'groups/' + encodeURIComponent(group) + '.md'
