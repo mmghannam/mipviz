@@ -639,6 +639,181 @@ main {
     opacity: 0.55;
 }
 .instance-meta.hidden { display: none; }
+
+.miplib-details {
+    margin: 4px 0 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--bg-card);
+}
+.miplib-details.hidden { display: none; }
+.miplib-details > summary {
+    padding: 10px 14px;
+    cursor: pointer;
+    list-style: none;
+}
+.miplib-details > summary::-webkit-details-marker { display: none; }
+.miplib-details[open] > summary { border-bottom: 1px solid var(--border-subtle); }
+.miplib-details-body { padding: 14px; }
+.miplib-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px 16px;
+    margin-bottom: 14px;
+}
+.miplib-fact-label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 2px;
+}
+.miplib-fact-value {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+.miplib-fact-value a { color: var(--accent); text-decoration: none; }
+.miplib-fact-value a:hover { text-decoration: underline; }
+.miplib-description {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0 0 14px;
+}
+.miplib-subheader {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 14px 0 6px;
+}
+.miplib-solutions {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+.miplib-solutions th,
+.miplib-solutions td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+}
+.miplib-solutions th {
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+}
+.miplib-solutions tr:last-child td { border-bottom: none; }
+.miplib-solutions td.num { text-align: right; }
+.miplib-bibtex {
+    margin-top: 6px;
+}
+.instance-about-body { padding: 0; }
+.about-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 10px 14px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.about-tab {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.about-tab:hover { color: var(--text-secondary); }
+.about-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+}
+.about-tab.hidden { display: none; }
+.about-pane { padding: 14px 18px 18px; }
+.about-pane.hidden { display: none; }
+
+.instance-notes-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+.instance-notes-body > *:first-child { margin-top: 0; }
+.instance-notes-body > *:last-child { margin-bottom: 0; }
+.instance-notes-body h1,
+.instance-notes-body h2,
+.instance-notes-body h3,
+.instance-notes-body h4 {
+    color: var(--text-primary);
+    margin: 18px 0 8px;
+    font-weight: 500;
+}
+.instance-notes-body h1 { font-size: 16px; }
+.instance-notes-body h2 { font-size: 14px; }
+.instance-notes-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.instance-notes-body p { margin: 8px 0; }
+.instance-notes-body a { color: var(--accent); text-decoration: none; }
+.instance-notes-body a:hover { text-decoration: underline; }
+.instance-notes-body code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg-raised);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+.instance-notes-body pre {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 11px;
+    overflow-x: auto;
+}
+.instance-notes-body pre code { background: none; padding: 0; font-size: 11px; }
+.instance-notes-body blockquote {
+    margin: 10px 0;
+    padding-left: 12px;
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
+}
+.instance-notes-body ul,
+.instance-notes-body ol { margin: 8px 0; padding-left: 22px; }
+.instance-notes-body li { margin: 3px 0; }
+.instance-notes-body img {
+    max-width: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    margin: 10px 0;
+}
+.instance-notes-body hr {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: 18px 0;
+}
+
+.miplib-bibtex pre {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow-x: auto;
+    margin: 0;
+    white-space: pre-wrap;
+}
 .instance-meta .instance-status,
 .instance-meta .miplib-tag,
 .instance-meta .collection-tag {

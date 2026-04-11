@@ -131,6 +131,19 @@
             <!-- Instance metadata (tags, collections) -->
             <div id="instance-meta" class="instance-meta hidden"></div>
 
+            <!-- About: MIPLIB info + curated notes, tabbed -->
+            <details id="instance-about" class="miplib-details hidden">
+                <summary class="section-header"><h3>About</h3><span id="instance-about-summary" class="constraints-count"></span><span class="chevron"></span></summary>
+                <div class="instance-about-body">
+                    <div class="about-tabs" role="tablist">
+                        <button class="about-tab hidden" data-pane="miplib" role="tab">MIPLIB info</button>
+                        <button class="about-tab hidden" data-pane="notes" role="tab">Notes</button>
+                    </div>
+                    <div id="miplib-details-body" class="about-pane" data-pane="miplib"></div>
+                    <div id="instance-notes-body" class="about-pane instance-notes-body hidden" data-pane="notes"></div>
+                </div>
+            </details>
+
             <!-- Constraint Types -->
             <div id="constraint-types" class="constraint-types"></div>
 
@@ -213,6 +226,7 @@
     <script src="./theme.js?v=1"></script>
     <script src="./config.js?v=1"></script>
     <script src="./api.js?v=1"></script>
+    <script src="./marked.min.js"></script>
     <script src="./nav-search.js?v=2"></script>
     <script src="./app.js?v=48"></script>
     <script src="./dirpicker.js?v=1"></script>
