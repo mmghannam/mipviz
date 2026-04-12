@@ -238,6 +238,22 @@
             border-top: 2px dotted #fbbf24;
             flex-shrink: 0;
         }
+        .bound-legend-toggle {
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: opacity 0.15s;
+        }
+        .bound-legend-toggle:hover {
+            background: var(--bg-hover);
+        }
+        .bound-legend-hidden {
+            opacity: 0.35;
+        }
+        .bound-legend-hidden .bound-legend-swatch,
+        .bound-legend-hidden .bound-legend-line-solid {
+            opacity: 0.4;
+        }
         .bound-legend-label {
             color: var(--text-secondary);
             white-space: nowrap;

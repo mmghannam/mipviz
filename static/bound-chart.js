@@ -13,6 +13,7 @@
 
     var canvas, ctx, wrap, legendEl, toggleBtn;
     var chartData = null; // { solverKey: [{t, dual, primal}] }
+    var hiddenSolvers = new Set();
     var logScale = false;
     var hoverX = null;
     var bestObj = null;
@@ -177,17 +178,29 @@
     function buildLegend() {
         if (!legendEl) return;
         var LABELS = window.SOLVER_LABELS || {};
-        var html = '';
-        for (var solver in chartData) {
-            var color = SOLVER_COLORS[solver] || '#888';
-            var label = LABELS[solver] || solver;
-            html +=
-                '<span class="bound-legend-item">' +
+        legendEl.innerHTML = '';
+        var solvers = Object.keys(chartData);
+        for (var i = 0; i < solvers.length; i++) {
+            (function (solver) {
+                var color = SOLVER_COLORS[solver] || '#888';
+                var label = LABELS[solver] || solver;
+                var isHidden = hiddenSolvers.has(solver);
+                var item = document.createElement('span');
+                item.className = 'bound-legend-item bound-legend-toggle' + (isHidden ? ' bound-legend-hidden' : '');
+                item.innerHTML =
                     '<span class="bound-legend-swatch" style="background:' + color + '"></span>' +
                     '<span class="bound-legend-line-solid" style="background:' + color + '"></span>' +
-                    '<span class="bound-legend-label">' + label + '</span>' +
-                '</span>';
+                    '<span class="bound-legend-label">' + label + '</span>';
+                item.addEventListener('click', function () {
+                    if (hiddenSolvers.has(solver)) hiddenSolvers.delete(solver);
+                    else hiddenSolvers.add(solver);
+                    buildLegend();
+                    drawChart();
+                });
+                legendEl.appendChild(item);
+            })(solvers[i]);
         }
+        var html = '';
         html +=
             '<span class="bound-legend-item bound-legend-key">' +
                 '<span class="bound-legend-line-solid" style="background:var(--text-muted)"></span>' +
@@ -204,7 +217,7 @@
                     '<span class="bound-legend-label" style="opacity:0.6">optimal = ' + fmtNum(bestObj) + '</span>' +
                 '</span>';
         }
-        legendEl.innerHTML = html;
+        legendEl.insertAdjacentHTML('beforeend', html);
     }
 
     // ── Hover ───────────────────────────────────────────────────────────
@@ -219,8 +232,10 @@
 
     function drawChart() {
         if (!canvas || !chartData) return;
-        var solvers = Object.keys(chartData);
-        if (solvers.length === 0) return;
+        var allSolvers = Object.keys(chartData);
+        if (allSolvers.length === 0) return;
+        var solvers = allSolvers.filter(function (s) { return !hiddenSolvers.has(s); });
+        if (solvers.length === 0) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
 
         var dpr = window.devicePixelRatio || 1;
         var dispW = canvas.parentElement.clientWidth;
@@ -332,6 +347,9 @@
             ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(w - margin.right, y); ctx.stroke();
         }
         var xTicks = logScale ? logTicks(tMinLog, tMax) : niceScale(tMin, tMax, 7);
+        // Always show the max time at the right edge (avoid overlap with last tick)
+        var lastTick = xTicks.length > 0 ? xTicks[xTicks.length - 1] : -Infinity;
+        if (tMax > lastTick * 1.02) xTicks.push(tMax);
         for (var i = 0; i < xTicks.length; i++) {
             var x = xPos(xTicks[i]);
             ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, h - margin.bottom); ctx.stroke();
