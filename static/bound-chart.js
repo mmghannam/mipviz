@@ -409,33 +409,27 @@
             }
 
             // Fill the gap region between primal and dual bounds
-            if (steps.length > 0 && steps[0].primal !== null) {
+            // Build paired arrays of steps that have both dual and primal
+            var pairedSteps = [];
+            for (var j = 0; j < steps.length; j++) {
+                if (steps[j].primal !== null) pairedSteps.push(steps[j]);
+            }
+            if (pairedSteps.length > 0) {
                 ctx.fillStyle = color;
                 ctx.globalAlpha = 0.10;
                 ctx.beginPath();
-                // Forward path along primal (top for minimize)
-                var firstWithPrimal = -1;
-                for (var j = 0; j < steps.length; j++) {
-                    if (steps[j].primal === null) continue;
-                    var x = xPos(steps[j].t);
-                    if (firstWithPrimal < 0) {
-                        ctx.moveTo(x, yPos(steps[j].primal));
-                        firstWithPrimal = j;
-                    } else {
-                        ctx.lineTo(x, yPos(steps[j - 1].primal));
-                        ctx.lineTo(x, yPos(steps[j].primal));
-                    }
+                // Forward path along primal (step function)
+                ctx.moveTo(xPos(pairedSteps[0].t), yPos(pairedSteps[0].primal));
+                for (var j = 1; j < pairedSteps.length; j++) {
+                    ctx.lineTo(xPos(pairedSteps[j].t), yPos(pairedSteps[j - 1].primal));
+                    ctx.lineTo(xPos(pairedSteps[j].t), yPos(pairedSteps[j].primal));
                 }
-                // Reverse path along dual (bottom for minimize)
-                for (var j = steps.length - 1; j >= firstWithPrimal; j--) {
-                    if (steps[j].primal === null) continue;
-                    var x = xPos(steps[j].t);
-                    ctx.lineTo(x, yPos(steps[j].dual));
-                    if (j > firstWithPrimal) {
-                        var prevJ = j - 1;
-                        while (prevJ >= firstWithPrimal && steps[prevJ].primal === null) prevJ--;
-                        if (prevJ >= firstWithPrimal) ctx.lineTo(x, yPos(steps[prevJ].dual));
-                    }
+                // Reverse path along dual (step function)
+                var last = pairedSteps[pairedSteps.length - 1];
+                ctx.lineTo(xPos(last.t), yPos(last.dual));
+                for (var j = pairedSteps.length - 2; j >= 0; j--) {
+                    ctx.lineTo(xPos(pairedSteps[j + 1].t), yPos(pairedSteps[j].dual));
+                    ctx.lineTo(xPos(pairedSteps[j].t), yPos(pairedSteps[j].dual));
                 }
                 ctx.closePath();
                 ctx.fill();
