@@ -397,8 +397,7 @@
                     ctx.lineTo(x, y);
                 }
             }
-            // Extend to tMax
-            if (started) ctx.lineTo(xPos(tMax), yPos(pts[pts.length - 1].dual));
+            // No extension past last data point — solver is done
             ctx.stroke();
             ctx.setLineDash([]);
 
@@ -419,7 +418,7 @@
                 }
                 lastPrimalY = y;
             }
-            if (started && lastPrimalY !== null) ctx.lineTo(xPos(tMax), lastPrimalY);
+            // No extension past last data point — solver is done
             ctx.stroke();
         }
 
