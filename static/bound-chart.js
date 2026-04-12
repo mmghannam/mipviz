@@ -14,7 +14,7 @@
     var canvas, ctx, wrap, legendEl, toggleBtn;
     var chartData = null; // { solverKey: [{t, dual, primal}] }
     var hiddenSolvers = new Set();
-    var logScale = false;
+    var logScale = true;
     var hoverX = null;
     var bestObj = null;
     var objSense = 'minimize';
@@ -134,7 +134,7 @@
         wrap.innerHTML =
             '<div class="bound-chart-header">' +
                 '<h3 class="bound-chart-title">Bound Convergence</h3>' +
-                '<button class="bound-chart-toggle" id="bound-chart-toggle">Log scale</button>' +
+                '<button class="bound-chart-toggle active" id="bound-chart-toggle">Log scale</button>' +
             '</div>' +
             '<div class="bound-chart-legend" id="bound-chart-legend"></div>' +
             '<div class="bound-chart-wrap"><canvas id="bound-chart-canvas"></canvas></div>';
