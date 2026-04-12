@@ -392,38 +392,75 @@
             ctx.globalAlpha = 1;
         }
 
-        // Draw solver curves
+        // Draw solver curves — filled gap band + thin lines
         for (var si = 0; si < solvers.length; si++) {
             var solver = solvers[si];
             var pts = chartData[solver];
             var color = SOLVER_COLORS[solver] || '#888';
             if (pts.length === 0) continue;
 
-            // Dual bound — dashed, step function
+            // Build step arrays for dual and primal so we can fill between them
+            // Each entry: {t, dual, primal} where primal carries forward last known value
+            var steps = [];
+            var lastPrimal = null;
+            for (var j = 0; j < pts.length; j++) {
+                if (pts[j].primal !== null) lastPrimal = pts[j].primal;
+                steps.push({ t: pts[j].t, dual: pts[j].dual, primal: lastPrimal });
+            }
+
+            // Fill the gap region between primal and dual bounds
+            if (steps.length > 0 && steps[0].primal !== null) {
+                ctx.fillStyle = color;
+                ctx.globalAlpha = 0.10;
+                ctx.beginPath();
+                // Forward path along primal (top for minimize)
+                var firstWithPrimal = -1;
+                for (var j = 0; j < steps.length; j++) {
+                    if (steps[j].primal === null) continue;
+                    var x = xPos(steps[j].t);
+                    if (firstWithPrimal < 0) {
+                        ctx.moveTo(x, yPos(steps[j].primal));
+                        firstWithPrimal = j;
+                    } else {
+                        ctx.lineTo(x, yPos(steps[j - 1].primal));
+                        ctx.lineTo(x, yPos(steps[j].primal));
+                    }
+                }
+                // Reverse path along dual (bottom for minimize)
+                for (var j = steps.length - 1; j >= firstWithPrimal; j--) {
+                    if (steps[j].primal === null) continue;
+                    var x = xPos(steps[j].t);
+                    ctx.lineTo(x, yPos(steps[j].dual));
+                    if (j > firstWithPrimal) {
+                        var prevJ = j - 1;
+                        while (prevJ >= firstWithPrimal && steps[prevJ].primal === null) prevJ--;
+                        if (prevJ >= firstWithPrimal) ctx.lineTo(x, yPos(steps[prevJ].dual));
+                    }
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            // Dual bound — dashed line
             ctx.strokeStyle = color;
             ctx.lineWidth = 1.5;
             ctx.setLineDash([6, 4]);
             ctx.beginPath();
-            var started = false;
-            for (var j = 0; j < pts.length; j++) {
+            ctx.moveTo(xPos(pts[0].t), yPos(pts[0].dual));
+            for (var j = 1; j < pts.length; j++) {
                 var x = xPos(pts[j].t);
-                var y = yPos(pts[j].dual);
-                if (!started) { ctx.moveTo(x, y); started = true; }
-                else {
-                    // Step: horizontal then vertical
-                    ctx.lineTo(x, yPos(pts[j - 1].dual));
-                    ctx.lineTo(x, y);
-                }
+                ctx.lineTo(x, yPos(pts[j - 1].dual));
+                ctx.lineTo(x, yPos(pts[j].dual));
             }
-            // No extension past last data point — solver is done
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Primal bound — solid, step function
+            // Primal bound — thin solid line
             ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            started = false;
+            var started = false;
             var lastPrimalY = null;
             for (var j = 0; j < pts.length; j++) {
                 if (pts[j].primal === null) continue;
@@ -436,7 +473,6 @@
                 }
                 lastPrimalY = y;
             }
-            // No extension past last data point — solver is done
             ctx.stroke();
         }
 
