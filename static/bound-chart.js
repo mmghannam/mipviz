@@ -252,7 +252,7 @@
         var borderSubtle = styles.getPropertyValue('--border-subtle').trim();
         var bgCard = styles.getPropertyValue('--bg-card').trim();
 
-        var margin = { top: 20, right: 24, bottom: 40, left: 64 };
+        var margin = { top: 20, right: 24, bottom: 52, left: 64 };
         var w = dispW, h = dispH;
         var plotW = w - margin.left - margin.right;
         var plotH = h - margin.top - margin.bottom;
