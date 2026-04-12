@@ -372,7 +372,7 @@
         // Axis titles
         ctx.fillStyle = textMuted;
         ctx.textAlign = 'center';
-        ctx.fillText('time' + (logScale ? ' (log)' : ''), margin.left + plotW / 2, h - 4);
+        ctx.fillText('time' + (logScale ? ' (log)' : ''), margin.left + plotW / 2, h - 14);
         ctx.save();
         ctx.translate(12, margin.top + plotH / 2);
         ctx.rotate(-Math.PI / 2);
