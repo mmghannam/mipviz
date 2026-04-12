@@ -165,6 +165,96 @@
             padding: 40px;
             text-align: center;
         }
+
+        /* Bound convergence chart */
+        .bound-chart-section {
+            margin: 32px 0;
+        }
+        .bound-chart-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .bound-chart-title {
+            font-family: var(--font-body);
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin: 0;
+        }
+        .bound-chart-toggle {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-muted);
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 10px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .bound-chart-toggle:hover {
+            color: var(--text);
+            border-color: var(--text-muted);
+        }
+        .bound-chart-toggle.active {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .bound-chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 20px;
+            margin-bottom: 10px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+        .bound-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .bound-legend-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        .bound-legend-line-solid {
+            width: 16px;
+            height: 2px;
+            flex-shrink: 0;
+        }
+        .bound-legend-line-dashed {
+            width: 16px;
+            height: 0;
+            border-top: 2px dashed var(--text-muted);
+            flex-shrink: 0;
+        }
+        .bound-legend-line-dotted {
+            width: 16px;
+            height: 0;
+            border-top: 2px dotted #fbbf24;
+            flex-shrink: 0;
+        }
+        .bound-legend-label {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .bound-legend-key .bound-legend-label {
+            color: var(--text-muted);
+        }
+        .bound-chart-wrap {
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: var(--bg-raised);
+        }
+        .bound-chart-wrap canvas {
+            display: block;
+            cursor: crosshair;
+        }
     </style>
 </head>
 <body>
@@ -206,6 +296,8 @@
 
             <div id="metrics-wrap"></div>
 
+            <div id="bound-chart-container"></div>
+
             <div class="log-viewer">
                 <h3>Solver Logs</h3>
                 <div class="log-tabs" id="log-tabs"></div>
@@ -224,6 +316,7 @@
     </footer>
 
     <script src="./theme.js?v=1"></script>
+    <script src="./bound-chart.js?v=1"></script>
     <script>
     const SOLVERS = ['scip_spx', 'scipc_cpx', 'highs', 'copt', 'optverse'];
     const SOLVER_LABELS = { highs: 'HiGHS 1.13.0', scip_spx: 'SCIP/spx 10.0.0', scipc_cpx: 'SCIP/cpx 10.0.0', copt: 'COPT 8.0.3', optverse: 'Optverse 2.0.1' };
@@ -425,6 +518,16 @@
                     statsEl.style.display = '';
                 }
                 buildTable(instData);
+
+                // Init bound convergence chart and load all solver logs
+                var chartContainer = document.getElementById('bound-chart-container');
+                initBoundChart(chartContainer, instData._stats);
+                SOLVERS.forEach(function (solver) {
+                    loadLog(solver).then(function (text) {
+                        addBoundSeries(solver, text);
+                    }).catch(function () { /* log not available */ });
+                });
+
                 // Auto-show first solver log
                 showTab(SOLVERS[0]);
             })
