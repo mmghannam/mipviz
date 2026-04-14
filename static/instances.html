@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instance Bank — mipviz</title>
-    <link rel="stylesheet" href="./style.css?v=64">
+    <link rel="stylesheet" href="./style.css?v=66">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -52,25 +52,23 @@
                 <span class="sort-label">Tag</span>
                 <button class="tag-filter-btn active" data-tag="all">All</button>
             </div>
-            <div class="bank-sort">
-                <span class="sort-label">Sort by</span>
-                <button class="sort-btn active" data-sort="name">Name</button>
-                <button class="sort-btn" data-sort="num_vars">Variables</button>
-                <button class="sort-btn" data-sort="num_constraints">Constraints</button>
-                <button class="sort-btn" data-sort="num_nonzeros">Nonzeros</button>
+            <div class="bank-filters" id="cons-type-filters">
+                <span class="sort-label">Constraint type</span>
+                <button class="cons-type-btn active" data-cons-type="all">All</button>
             </div>
             <div class="bank-table-wrap">
                 <table class="bank-table">
                     <thead>
                         <tr>
-                            <th class="col-name">Name</th>
-                            <th class="col-num">Variables</th>
-                            <th class="col-num">Constraints</th>
-                            <th class="col-num">Nonzeros</th>
-                            <th class="col-num">Cont.</th>
-                            <th class="col-num">Int.</th>
-                            <th class="col-num">Bin.</th>
-                            <th class="col-tags">Status</th>
+                            <th class="col-name sortable active" data-sort="name">Name<span class="sort-indicator"> ▲</span></th>
+                            <th class="col-num sortable" data-sort="num_vars">Variables<span class="sort-indicator"></span></th>
+                            <th class="col-num sortable" data-sort="num_constraints">Constraints<span class="sort-indicator"></span></th>
+                            <th class="col-num sortable" data-sort="num_nonzeros">Nonzeros<span class="sort-indicator"></span></th>
+                            <th class="col-num sortable" data-sort="num_continuous">Cont.<span class="sort-indicator"></span></th>
+                            <th class="col-num sortable" data-sort="num_integer">Int.<span class="sort-indicator"></span></th>
+                            <th class="col-num sortable" data-sort="num_binary">Bin.<span class="sort-indicator"></span></th>
+                            <th class="col-num col-cons-type sortable hidden" data-sort="cons_type" id="col-cons-type-header"></th>
+                            <th class="col-tags sortable" data-sort="status">Status<span class="sort-indicator"></span></th>
                             <th class="col-tags">Tags</th>
                             <th class="col-tags">Collections</th>
                         </tr>
@@ -99,10 +97,13 @@
     let allStats = [];
     let collections = {};
     let miplibMeta = {}; // name -> { tags, status, objective, ... }
+    let miplibDetails = {}; // name -> { statistics: { constraints: { <Type>: { original, presolved }}}}
+    let consTypeCounts = {}; // name -> { <Type>: <count> }
     let currentSort = 'name';
     let sortAsc = true;
     let currentFilter = 'all';
     let currentTag = 'all';
+    let currentConsType = 'all';
 
     function formatNum(n) {
         return n.toLocaleString();
@@ -119,12 +120,25 @@
         return 'hsl(' + hue + ', 70%, 65%)';
     }
 
+    function tagToggle(n) {
+        if (n === 0) return '';
+        return '<button class="tag-cell-toggle" type="button" data-count="' + n + '">' + n + '<span class="tag-cell-chevron"> ▾</span></button>';
+    }
+
     function renderTags(name) {
         const tags = collections[name] || [];
         return tags.map(t => {
             const color = collectionColor(t);
             return '<span class="collection-tag" data-tag="' + t + '" style="color:' + color + ';border-color:' + color + '">' + t.replace(/_/g, ' ') + '</span>';
         }).join(' ');
+    }
+
+    function renderTagsCell(name) {
+        const n = (collections[name] || []).length;
+        return '<div class="tag-cell collapsed">' +
+               tagToggle(n) +
+               '<span class="tag-cell-inline">' + renderTags(name) + '</span>' +
+               '</div>';
     }
 
     function instanceHref(name) {
@@ -151,10 +165,33 @@
         }).join(' ');
     }
 
+    function renderMiplibTagsCell(name) {
+        const meta = miplibMeta[name];
+        const skip = new Set(['benchmark', 'benchmark_suitable', 'easy', 'hard', 'open', 'no_solution']);
+        const n = (meta && meta.tags) ? meta.tags.filter(t => !skip.has(t)).length : 0;
+        return '<div class="tag-cell collapsed">' +
+               tagToggle(n) +
+               '<span class="tag-cell-inline">' + renderMiplibTags(name) + '</span>' +
+               '</div>';
+    }
+
+    function consTypeCount(name, type) {
+        const counts = consTypeCounts[name];
+        if (!counts) return null;
+        return counts[type] || 0;
+    }
+
     function renderTable(data) {
         bankBody.innerHTML = '';
+        const showConsCol = currentConsType !== 'all';
         for (const s of data) {
             const tr = document.createElement('tr');
+            let consCell = '';
+            if (showConsCol) {
+                const c = consTypeCount(s.name, currentConsType);
+                const txt = c === null ? '—' : formatNum(c);
+                consCell = '<td class="col-num col-cons-type">' + txt + '</td>';
+            }
             tr.innerHTML =
                 '<td class="col-name"><a href="' + instanceHref(s.name) + '">' + s.name + '</a></td>' +
                 '<td class="col-num">' + formatNum(s.num_vars) + '</td>' +
@@ -163,15 +200,43 @@
                 '<td class="col-num">' + formatNum(s.num_continuous) + '</td>' +
                 '<td class="col-num">' + formatNum(s.num_integer) + '</td>' +
                 '<td class="col-num">' + formatNum(s.num_binary) + '</td>' +
+                consCell +
                 '<td class="col-tags">' + renderStatus(s.name) + '</td>' +
-                '<td class="col-tags">' + renderMiplibTags(s.name) + '</td>' +
-                '<td class="col-tags">' + renderTags(s.name) + '</td>';
+                '<td class="col-tags">' + renderMiplibTagsCell(s.name) + '</td>' +
+                '<td class="col-tags">' + renderTagsCell(s.name) + '</td>';
             bankBody.appendChild(tr);
         }
         bankCount.textContent = data.length + ' instances';
     }
 
+    const STATUS_RANK = { easy: 0, hard: 1, open: 2 };
+    function statusRank(name) {
+        const meta = miplibMeta[name];
+        const s = meta && meta.status;
+        return s && STATUS_RANK[s] !== undefined ? STATUS_RANK[s] : 3;
+    }
+
     function sortData(data, key, asc) {
+        if (key === 'status') {
+            return data.slice().sort((a, b) => {
+                const ra = statusRank(a.name);
+                const rb = statusRank(b.name);
+                if (ra !== rb) return asc ? ra - rb : rb - ra;
+                return a.name.localeCompare(b.name);
+            });
+        }
+        if (key === 'cons_type' && currentConsType !== 'all') {
+            const t = currentConsType;
+            return data.slice().sort((a, b) => {
+                const ca = consTypeCount(a.name, t);
+                const cb = consTypeCount(b.name, t);
+                // Nulls (no detail data) go to the bottom regardless of direction
+                if (ca === null && cb === null) return a.name.localeCompare(b.name);
+                if (ca === null) return 1;
+                if (cb === null) return -1;
+                return asc ? ca - cb : cb - ca;
+            });
+        }
         return data.slice().sort((a, b) => {
             if (key === 'name') {
                 return asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
@@ -201,22 +266,50 @@
         renderTable(filtered);
     }
 
-    // Sort buttons
-    document.querySelectorAll('.sort-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const key = btn.dataset.sort;
-            if (currentSort === key) {
+    // Click-to-sort on table headers.
+    function updateSortIndicators() {
+        document.querySelectorAll('th.sortable').forEach(th => {
+            const key = th.dataset.sort;
+            let isActive;
+            if (key === 'cons_type') {
+                isActive = currentSort === 'cons_type' && currentConsType !== 'all';
+            } else {
+                isActive = key === currentSort && currentConsType === 'all';
+            }
+            th.classList.toggle('active', isActive);
+            const ind = th.querySelector('.sort-indicator');
+            if (ind) ind.textContent = isActive ? (sortAsc ? ' ▲' : ' ▼') : '';
+        });
+    }
+
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            // Clicking the cons-type header just toggles asc/desc; it only sorts when a
+            // type pill is active (otherwise the column is hidden anyway).
+            if (key === 'cons_type') {
+                if (currentConsType === 'all') return;
+                sortAsc = !sortAsc;
+                currentSort = 'cons_type';
+                updateSortIndicators();
+                applyFilter();
+                return;
+            }
+            if (currentSort === key && currentConsType === 'all') {
                 sortAsc = !sortAsc;
             } else {
                 currentSort = key;
                 sortAsc = key === 'name';
             }
-            document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            btn.textContent = btn.textContent.replace(/ [▲▼]$/, '') + (sortAsc ? ' ▲' : ' ▼');
-            document.querySelectorAll('.sort-btn:not(.active)').forEach(b => {
-                b.textContent = b.textContent.replace(/ [▲▼]$/, '');
-            });
+            // Clicking a normal sort column deactivates the cons-type pill/column.
+            if (currentConsType !== 'all') {
+                currentConsType = 'all';
+                document.querySelectorAll('.cons-type-btn').forEach(b => {
+                    b.classList.toggle('active', b.dataset.consType === 'all');
+                });
+                updateConsTypeColumn();
+            }
+            updateSortIndicators();
             applyFilter();
         });
     });
@@ -233,6 +326,16 @@
     });
 
     bankBody.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.tag-cell-toggle');
+        if (toggle) {
+            const cell = toggle.closest('.tag-cell');
+            if (cell) {
+                const isCollapsed = cell.classList.toggle('collapsed');
+                const chev = toggle.querySelector('.tag-cell-chevron');
+                if (chev) chev.textContent = isCollapsed ? ' ▾' : ' ▴';
+            }
+            return;
+        }
         if (e.target.classList.contains('collection-tag')) {
             const tag = e.target.dataset.tag;
             currentFilter = tag;
@@ -275,6 +378,49 @@
         });
     }
 
+    // Constraint-type sort pills: selecting one reveals a column with per-instance
+    // counts of that type and sorts instances by that count descending.
+    function updateConsTypeColumn() {
+        const header = document.getElementById('col-cons-type-header');
+        if (currentConsType === 'all') {
+            header.classList.add('hidden');
+            header.textContent = '';
+        } else {
+            header.classList.remove('hidden');
+            let total = 0;
+            Object.keys(consTypeCounts).forEach(n => {
+                total += (consTypeCounts[n][currentConsType] || 0);
+            });
+            header.innerHTML = currentConsType +
+                ' <span class="cons-type-count">' + formatNum(total) + '</span>' +
+                '<span class="sort-indicator"></span>';
+        }
+    }
+
+    function setupConsTypeButtons() {
+        document.querySelectorAll('.cons-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.consType;
+                currentConsType = type;
+                document.querySelectorAll('.cons-type-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (type === 'all') {
+                    // Fall back to name sort if we were sorting by cons_type.
+                    if (currentSort === 'cons_type') {
+                        currentSort = 'name';
+                        sortAsc = true;
+                    }
+                } else {
+                    currentSort = 'cons_type';
+                    sortAsc = false; // descending by count
+                }
+                updateConsTypeColumn();
+                updateSortIndicators();
+                applyFilter();
+            });
+        });
+    }
+
     // Load data
     const INSTANCE_REPO = 'https://raw.githubusercontent.com/mmghannam/mipviz-instances/main/';
     const GITHUB_API_URL = 'https://api.github.com/repos/mmghannam/mipviz-instances/contents/collections';
@@ -283,12 +429,31 @@
         fetch(INSTANCE_REPO + 'instance-stats.json').then(r => r.json()),
         fetch(GITHUB_API_URL).then(r => r.json()),
         fetch(INSTANCE_REPO + 'miplib-metadata.json').then(r => r.json()).catch(() => []),
+        fetch(INSTANCE_REPO + 'miplib-details.json').then(r => r.json()).catch(() => ({})),
     ])
-    .then(([stats, collectionFiles, miplibData]) => {
+    .then(([stats, collectionFiles, miplibData, detailsData]) => {
         allStats = stats;
         // Build miplib metadata lookup
         miplibMeta = {};
         miplibData.forEach(m => { miplibMeta[m.name] = m; });
+
+        // Build per-instance constraint-type count table from miplib-details.
+        // Use the "original" values and skip meta-rows like "Total".
+        miplibDetails = detailsData || {};
+        consTypeCounts = {};
+        const SKIP_CONS = new Set(['Total']);
+        Object.keys(miplibDetails).forEach(name => {
+            const cons = miplibDetails[name] && miplibDetails[name].statistics && miplibDetails[name].statistics.constraints;
+            if (!cons) return;
+            const counts = {};
+            Object.keys(cons).forEach(type => {
+                if (SKIP_CONS.has(type)) return;
+                const raw = cons[type] && cons[type].original;
+                const v = raw == null ? 0 : Number(raw);
+                if (Number.isFinite(v)) counts[type] = v;
+            });
+            consTypeCounts[name] = counts;
+        });
 
         // --- Defensive check for API rate limit ---
         if (!Array.isArray(collectionFiles)) {
@@ -354,8 +519,27 @@
             tagFiltersContainer.appendChild(btn);
         });
 
+        // Build constraint-type pills: pill count = number of instances that contain
+        // at least one constraint of that type; sorted by that count (desc).
+        const consTypeInstanceCounts = {};
+        Object.values(consTypeCounts).forEach(counts => {
+            Object.keys(counts).forEach(t => {
+                if (counts[t] > 0) consTypeInstanceCounts[t] = (consTypeInstanceCounts[t] || 0) + 1;
+            });
+        });
+        const consTypesSorted = Object.keys(consTypeInstanceCounts).sort((a, b) => consTypeInstanceCounts[b] - consTypeInstanceCounts[a]);
+        const consTypeContainer = document.getElementById('cons-type-filters');
+        consTypesSorted.forEach(type => {
+            const btn = document.createElement('button');
+            btn.className = 'cons-type-btn';
+            btn.dataset.consType = type;
+            btn.innerHTML = type + ' <span class="cons-type-count">' + formatNum(consTypeInstanceCounts[type]) + '</span>';
+            consTypeContainer.appendChild(btn);
+        });
+
         setupFilterButtons();
         setupTagFilterButtons();
+        setupConsTypeButtons();
         bankStatus.classList.add('hidden');
         applyFilter();
     })

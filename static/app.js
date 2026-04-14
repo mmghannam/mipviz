@@ -1366,6 +1366,19 @@ function classifyConstraint(c) {
     else if (hasInt) tags.push('mixed integer');
     else if (hasBin && hasCont) tags.push('mixed binary');
 
+    // big-M: at least one binary term with |coeff| >= BIGM_RATIO * max |coeff| of non-binary terms
+    if (hasBin && (hasCont || hasInt)) {
+        const BIGM_RATIO = 100;
+        let maxBin = 0;
+        let maxOther = 0;
+        for (const t of c.terms) {
+            const a = Math.abs(t.coeff);
+            if (t.var_type === 'binary') { if (a > maxBin) maxBin = a; }
+            else if (a > maxOther) maxOther = a;
+        }
+        if (maxOther > 0 && maxBin >= BIGM_RATIO * maxOther) tags.push('big-M');
+    }
+
     // Structure tags
     if (n === 1) { tags.push('bound'); return tags; }
     if (n === 2 && hasBin && (hasCont || hasInt)) { tags.push('variable bound'); return tags; }
@@ -1466,7 +1479,7 @@ function renderStats(stats) {
     const types = modelData._constraintTypes || {};
     const typeOrder = ['set partitioning', 'set packing', 'set covering', 'cardinality',
                        'knapsack', 'bin. knapsack eq.', 'integer knapsack', 'equality',
-                       'variable bound', 'bound',
+                       'variable bound', 'bound', 'big-M',
                        'continuous', 'pure binary', 'mixed binary', 'mixed integer',
                        'empty'];
     const typesEl = document.getElementById('constraint-types');

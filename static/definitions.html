@@ -117,6 +117,11 @@
                     <div class="definition-formula">$$a \cdot x + b \cdot y \leq c, \quad x \in \{0,1\}$$</div>
                 </div>
                 <div class="definition-card">
+                    <span class="type-tag" data-type="big-M">big-M</span>
+                    <p>Mixes binary and non-binary variables, where at least one binary coefficient is at least 100&times; larger in absolute value than every non-binary coefficient. Typical of indicator-style linking constraints.</p>
+                    <div class="definition-formula">$$\sum_{i} a_i x_i + M \cdot y \leq b, \quad y \in \{0,1\},\ |M| \gg |a_i|$$</div>
+                </div>
+                <div class="definition-card">
                     <span class="type-tag" data-type="bound">bound</span>
                     <p>Single-variable constraint (effectively an explicit bound on one variable).</p>
                     <div class="definition-formula">$$l \leq a \cdot x \leq u$$</div>

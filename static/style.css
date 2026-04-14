@@ -1281,6 +1281,7 @@ main {
 .type-tag[data-type="pure binary"]      { background: rgba(37, 99, 235, 0.15); color: #60a5fa; }
 .type-tag[data-type="mixed binary"]     { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
 .type-tag[data-type="mixed integer"]    { background: rgba(22, 163, 74, 0.15); color: #4ade80; }
+.type-tag[data-type="big-M"]            { background: rgba(217, 70, 239, 0.15); color: #e879f9; }
 .type-tag[data-type="empty"]            { background: rgba(148, 163, 184, 0.08); color: #64748b; }
 
 .constraint-type-tag[data-type="set partitioning"] { background: rgba(139, 92, 246, 0.12); color: #a78bfa; border-color: rgba(139, 92, 246, 0.2); }
@@ -1298,6 +1299,7 @@ main {
 .constraint-type-tag[data-type="pure binary"]      { background: rgba(37, 99, 235, 0.12); color: #60a5fa; border-color: rgba(37, 99, 235, 0.2); }
 .constraint-type-tag[data-type="mixed binary"]     { background: rgba(14, 165, 233, 0.12); color: #38bdf8; border-color: rgba(14, 165, 233, 0.2); }
 .constraint-type-tag[data-type="mixed integer"]    { background: rgba(22, 163, 74, 0.12); color: #4ade80; border-color: rgba(22, 163, 74, 0.2); }
+.constraint-type-tag[data-type="big-M"]            { background: rgba(217, 70, 239, 0.12); color: #e879f9; border-color: rgba(217, 70, 239, 0.2); }
 .constraint-type-tag[data-type="empty"]            { background: rgba(148, 163, 184, 0.06); color: #64748b; border-color: rgba(148, 163, 184, 0.1); }
 
 .constraint-row.filtered-out {
@@ -2449,6 +2451,86 @@ img.footer-logo[alt="HiGHS"] {
     white-space: nowrap;
 }
 
+.tag-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tag-cell-toggle {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 1px 6px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.tag-cell-toggle:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+.tag-cell-chevron {
+    font-size: 8px;
+    opacity: 0.7;
+}
+
+.tag-cell.collapsed .tag-cell-inline {
+    display: none;
+}
+
+.tag-cell-inline {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.cons-type-btn {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.cons-type-btn:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+.cons-type-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.cons-type-count {
+    color: var(--text-muted);
+    font-size: 8px;
+    margin-left: 2px;
+    opacity: 0.75;
+}
+
+.cons-type-btn.active .cons-type-count {
+    color: var(--accent);
+    opacity: 0.85;
+}
+
+.col-cons-type.hidden,
+th.col-cons-type.hidden {
+    display: none;
+}
+
 .bank-filters {
     display: flex;
     align-items: center;
@@ -2595,6 +2677,24 @@ img.footer-logo[alt="HiGHS"] {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
+}
+
+.bank-table thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.bank-table thead th.sortable:hover {
+    color: var(--text);
+}
+
+.bank-table thead th.sortable.active {
+    color: var(--accent);
+}
+
+.bank-table thead th .sort-indicator {
+    font-size: 9px;
+    opacity: 0.8;
 }
 
 .bank-table tbody tr {
