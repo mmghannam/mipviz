@@ -1379,10 +1379,6 @@ function classifyConstraint(c) {
         if (maxOther > 0 && maxBin >= BIGM_RATIO * maxOther) tags.push('big-M');
     }
 
-    // Structure tags
-    if (n === 1) { tags.push('bound'); return tags; }
-    if (n === 2 && hasBin && (hasCont || hasInt)) { tags.push('variable bound'); return tags; }
-
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
     const isEq = !lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10;
@@ -1395,6 +1391,18 @@ function classifyConstraint(c) {
                  : isLeq ? Math.abs(c.upper - 1) < 1e-10
                  : isGeq ? Math.abs(c.lower - 1) < 1e-10
                  : false;
+    const rhsZero = isEq ? Math.abs(c.lower) < 1e-10
+                  : isLeq ? Math.abs(c.upper) < 1e-10
+                  : isGeq ? Math.abs(c.lower) < 1e-10
+                  : false;
+    const isPrecedence = n === 2 && allUnitCoeff && (isLeq || isGeq) && rhsZero
+        && c.terms[0].coeff * c.terms[1].coeff < 0
+        && c.terms[0].var_type === c.terms[1].var_type;
+
+    // Structure tags
+    if (n === 1) { tags.push('bound'); return tags; }
+    if (isPrecedence) { tags.push('precedence'); return tags; }
+    if (n === 2 && hasBin && (hasCont || hasInt)) { tags.push('variable bound'); return tags; }
 
     if (allBinary && allCoeffOne && rhsOne) {
         if (isEq) tags.push('set partitioning');
@@ -1477,7 +1485,7 @@ function renderStats(stats) {
 
     // Constraint type breakdown
     const types = modelData._constraintTypes || {};
-    const typeOrder = ['set partitioning', 'set packing', 'set covering', 'cardinality',
+    const typeOrder = ['set partitioning', 'set packing', 'set covering', 'precedence', 'cardinality',
                        'knapsack', 'bin. knapsack eq.', 'integer knapsack', 'equality',
                        'variable bound', 'bound', 'big-M',
                        'continuous', 'pure binary', 'mixed binary', 'mixed integer',

@@ -1269,6 +1269,7 @@ main {
 .type-tag[data-type="set partitioning"] { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
 .type-tag[data-type="set packing"]      { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 .type-tag[data-type="set covering"]     { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.type-tag[data-type="precedence"]       { background: rgba(132, 204, 22, 0.15); color: #a3e635; }
 .type-tag[data-type="cardinality"]      { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .type-tag[data-type="knapsack"]         { background: rgba(239, 68, 68, 0.15); color: #f87171; }
 .type-tag[data-type="bin. knapsack eq."]{ background: rgba(236, 72, 153, 0.15); color: #f472b6; }
@@ -1287,6 +1288,7 @@ main {
 .constraint-type-tag[data-type="set partitioning"] { background: rgba(139, 92, 246, 0.12); color: #a78bfa; border-color: rgba(139, 92, 246, 0.2); }
 .constraint-type-tag[data-type="set packing"]      { background: rgba(59, 130, 246, 0.12); color: #60a5fa; border-color: rgba(59, 130, 246, 0.2); }
 .constraint-type-tag[data-type="set covering"]     { background: rgba(16, 185, 129, 0.12); color: #34d399; border-color: rgba(16, 185, 129, 0.2); }
+.constraint-type-tag[data-type="precedence"]       { background: rgba(132, 204, 22, 0.12); color: #a3e635; border-color: rgba(132, 204, 22, 0.2); }
 .constraint-type-tag[data-type="cardinality"]      { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.2); }
 .constraint-type-tag[data-type="knapsack"]         { background: rgba(239, 68, 68, 0.12); color: #f87171; border-color: rgba(239, 68, 68, 0.2); }
 .constraint-type-tag[data-type="bin. knapsack eq."]{ background: rgba(236, 72, 153, 0.12); color: #f472b6; border-color: rgba(236, 72, 153, 0.2); }
