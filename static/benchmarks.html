@@ -56,26 +56,18 @@
                     <button class="metric-btn" data-metric="presolve">Presolve</button>
                     <button class="metric-btn" data-metric="lp_gap">LP Gap</button>
                 </div>
-                <div class="bank-sort">
-                    <span class="sort-label">Sort by</span>
-                    <button class="sort-btn active" data-sort="name">Name</button>
-                    <button class="sort-btn" data-sort="scip_spx">SCIP/spx</button>
-                    <button class="sort-btn" data-sort="scipc_cpx">SCIP/cpx</button>
-                    <button class="sort-btn" data-sort="highs">HiGHS</button>
-                    <button class="sort-btn" data-sort="copt">COPT</button>
-                    <button class="sort-btn" data-sort="optverse">Optverse</button>
-                </div>
+
             </div>
             <div class="bank-table-wrap">
                 <table class="bank-table benchmark-table">
                     <thead>
                         <tr>
-                            <th class="col-name">Name</th>
-                            <th class="col-solver">SCIP/spx 10.0.0</th>
-                            <th class="col-solver">SCIP/cpx 10.0.0</th>
-                            <th class="col-solver col-separator">HiGHS 1.13.0</th>
-                            <th class="col-solver col-commercial">COPT 8.0.3</th>
-                            <th class="col-solver col-commercial">Optverse 2.0.1</th>
+                            <th class="col-name sortable active" data-sort="name">Name<span class="sort-indicator"> ▲</span></th>
+                            <th class="col-solver sortable" data-sort="scip_spx">SCIP/spx 10.0.0<span class="sort-indicator"></span></th>
+                            <th class="col-solver sortable" data-sort="scipc_cpx">SCIP/cpx 10.0.0<span class="sort-indicator"></span></th>
+                            <th class="col-solver col-separator sortable" data-sort="highs">HiGHS 1.13.0<span class="sort-indicator"></span></th>
+                            <th class="col-solver col-commercial sortable" data-sort="copt">COPT 8.0.3<span class="sort-indicator"></span></th>
+                            <th class="col-solver col-commercial sortable" data-sort="optverse">Optverse 2.0.1<span class="sort-indicator"></span></th>
                         </tr>
                     </thead>
                     <tbody id="bank-body"></tbody>
@@ -292,27 +284,39 @@
         });
     });
 
-    // Sort buttons
-    document.querySelectorAll('.sort-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const key = btn.dataset.sort;
+    // Sort via table headers
+    function updateSortIndicators() {
+        document.querySelectorAll('th.sortable').forEach(th => {
+            const key = th.dataset.sort;
+            const ind = th.querySelector('.sort-indicator');
+            if (key === currentSort) {
+                th.classList.add('active');
+                ind.textContent = sortAsc ? ' ▲' : ' ▼';
+            } else {
+                th.classList.remove('active');
+                ind.textContent = '';
+            }
+        });
+    }
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
             if (currentSort === key) {
                 sortAsc = !sortAsc;
             } else {
                 currentSort = key;
                 sortAsc = key === 'name';
             }
-            document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            btn.textContent = btn.textContent.replace(/ [▲▼]$/, '') + (sortAsc ? ' ▲' : ' ▼');
-            document.querySelectorAll('.sort-btn:not(.active)').forEach(b => {
-                b.textContent = b.textContent.replace(/ [▲▼]$/, '');
-            });
+            updateSortIndicators();
             applyFilter();
         });
     });
 
-    bankSearch.addEventListener('input', applyFilter);
+    var bankSearchDebounce = null;
+    bankSearch.addEventListener('input', function() {
+        clearTimeout(bankSearchDebounce);
+        bankSearchDebounce = setTimeout(applyFilter, 250);
+    });
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {

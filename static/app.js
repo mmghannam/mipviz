@@ -37,6 +37,8 @@ let constraintsShown = 0;
 let mathMode = false;
 let activeTypeFilter = null;
 let activeVarFilter = null;
+let activeConNameFilter = '';
+let activeVarNameFilter = '';
 let activeComponentFilter = null; // { index, rowSet, colSet } or null
 let activeConstraintVarFilter = null; // constraint index or null
 let lpSolution = null; // { col_values, objective_value, status } or null
@@ -75,6 +77,8 @@ function updateFilterPill() {
         var cName = modelData && modelData.constraints[activeConstraintVarFilter] ? modelData.constraints[activeConstraintVarFilter].name : '#' + activeConstraintVarFilter;
         parts.push('Constraint: <strong>' + escapeHtml(cName) + '</strong>');
     }
+    if (activeConNameFilter) parts.push('Con. name: <strong>' + escapeHtml(activeConNameFilter) + '</strong>');
+    if (activeVarNameFilter) parts.push('Var. name: <strong>' + escapeHtml(activeVarNameFilter) + '</strong>');
     if (parts.length === 0) {
         filterPill.classList.add('hidden');
         updateHashState();
@@ -100,6 +104,16 @@ function clearAllFilters() {
     }
     if (typeof activeConstraintVarFilter !== 'undefined' && activeConstraintVarFilter != null) {
         clearConstraintVarFilter();
+    }
+    if (activeConNameFilter) {
+        activeConNameFilter = '';
+        var cnf = document.getElementById('con-name-filter');
+        if (cnf) cnf.value = '';
+    }
+    if (activeVarNameFilter) {
+        activeVarNameFilter = '';
+        var vnf = document.getElementById('var-name-filter');
+        if (vnf) vnf.value = '';
     }
     applyFilters();
     updateFilterPill();
@@ -1247,6 +1261,29 @@ if (newUploadBtn) newUploadBtn.addEventListener('click', () => {
 
 showMoreBtn.addEventListener('click', renderMoreConstraints);
 
+// Name filter for constraints
+var conNameFilterInput = document.getElementById('con-name-filter');
+var conNameDebounce = null;
+conNameFilterInput.addEventListener('input', function() {
+    clearTimeout(conNameDebounce);
+    conNameDebounce = setTimeout(function() {
+        activeConNameFilter = conNameFilterInput.value.trim();
+        renderConstraintsInit();
+        updateFilterPill();
+    }, 500);
+});
+
+// Name filter for variables
+var varNameFilterInput = document.getElementById('var-name-filter');
+var varNameDebounce = null;
+varNameFilterInput.addEventListener('input', function() {
+    clearTimeout(varNameDebounce);
+    varNameDebounce = setTimeout(function() {
+        activeVarNameFilter = varNameFilterInput.value.trim();
+        renderVariablesInit();
+    }, 500);
+});
+
 async function uploadFile(file) {
     setStatus('Parsing ' + file.name + '…', 'loading');
 
@@ -1826,6 +1863,17 @@ function renderVariablesInit() {
         filteredVarIndices = null;
     }
 
+    // Apply name filter on top
+    if (activeVarNameFilter) {
+        const base = filteredVarIndices
+            ? filteredVarIndices
+            : Array.from({ length: modelData.variables.length }, function(_, i) { return i; });
+        const nameLower = activeVarNameFilter.toLowerCase();
+        filteredVarIndices = base.filter(function(i) {
+            return modelData.variables[i].name.toLowerCase().includes(nameLower);
+        });
+    }
+
     // When LP solution is shown, sort fractional variables first
     if (lpSolution && lpSolution.col_values) {
         var indices = filteredVarIndices
@@ -2221,16 +2269,18 @@ function renderConstraintsInit() {
             : null;
     }
 
-    // Apply type and variable filters on top
-    if (activeTypeFilter || activeVarFilter) {
+    // Apply type, variable, and name filters on top
+    if (activeTypeFilter || activeVarFilter || activeConNameFilter) {
         const base = filteredConIndices
             ? filteredConIndices
             : modelData.constraints.map((_, i) => i);
+        const nameLower = activeConNameFilter ? activeConNameFilter.toLowerCase() : '';
         filteredConIndices = base.filter(i => {
             const con = modelData.constraints[i];
             const typeOk = !activeTypeFilter || (con._tags && con._tags.includes(activeTypeFilter));
             const varOk = !activeVarFilter || con.terms.some(t => String(t.var_index) === activeVarFilter);
-            return typeOk && varOk;
+            const nameOk = !activeConNameFilter || con.name.toLowerCase().includes(nameLower);
+            return typeOk && varOk && nameOk;
         });
     }
 

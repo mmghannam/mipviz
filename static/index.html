@@ -166,6 +166,7 @@
             <!-- Variables -->
             <details class="collapsible">
                 <summary class="section-header"><h3>Variables</h3><span id="variables-count" class="constraints-count"></span><span class="chevron"></span></summary>
+                <input type="text" id="var-name-filter" class="nav-search name-filter-input" placeholder="Filter by name…">
                 <div class="variables-sort-bar" id="variables-sort-bar">
                     <button class="sort-btn active" id="vars-compress-btn" title="Group variables with identical type, bounds, and obj">compress</button>
                     <span class="sort-bar-sep"></span>
@@ -184,6 +185,7 @@
             <!-- Constraints -->
             <details class="collapsible">
                 <summary class="section-header"><h3>Constraints</h3><span id="constraints-count" class="constraints-count"></span><span class="chevron"></span></summary>
+                <input type="text" id="con-name-filter" class="nav-search name-filter-input" placeholder="Filter by name…">
                 <div class="constraints-toolbar">
                     <button id="plot-all-lr-btn" class="btn-plot-all-lr" onclick="if(typeof addAllVisibleToLagrangian==='function')addAllVisibleToLagrangian()">Plot all visible L(&#955;)</button>
                     <button id="solve-visible-btn" class="btn-plot-all-lr">Solve visible LP</button>

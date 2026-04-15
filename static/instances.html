@@ -314,7 +314,11 @@
         });
     });
 
-    bankSearch.addEventListener('input', applyFilter);
+    var bankSearchDebounce = null;
+    bankSearch.addEventListener('input', function() {
+        clearTimeout(bankSearchDebounce);
+        bankSearchDebounce = setTimeout(applyFilter, 250);
+    });
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
