@@ -212,11 +212,12 @@ def parse_optverse(text):
         r'^\s*[H ]?\s*[\d.]+s\s+0\s+\d+\s+\S+\s+(\S+)\s+(\S+)\s+',
         text, re.MULTILINE
     )
-    for bound_s, sol_s in bb_lines:
+    # Optverse always emits a trivial pre-LP line first; the second line is
+    # the bound after the first LP relaxation.
+    for i, (bound_s, sol_s) in enumerate(bb_lines):
         db = parse_float(bound_s)
         pb = parse_float(sol_s)
-        # LP relaxation: first non-zero dual bound (skip trivial 0 bound)
-        if db is not None and lp_dual is None and db != 0.0:
+        if db is not None and lp_dual is None and i >= 1:
             lp_dual = db
             lp_primal = pb
         if db is not None:
