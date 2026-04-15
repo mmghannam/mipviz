@@ -634,7 +634,9 @@ async function loadRecentUpload(entry) {
         isPresolved = false;
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
-        downloadBtn.classList.add('hidden');
+        downloadBtn.href = URL.createObjectURL(file);
+        downloadBtn.setAttribute('download', entry.fileName);
+        downloadBtn.classList.remove('hidden');
         addRecent(entry.name, 'upload', entry.fileName);
         showResults();
     } catch (err) {
@@ -1194,7 +1196,9 @@ async function loadInstanceFromUrl(name) {
         isPresolved = false;
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
-        downloadBtn.classList.add('hidden');
+        downloadBtn.href = url;
+        downloadBtn.setAttribute('download', name + '.mps.gz');
+        downloadBtn.classList.remove('hidden');
         var matrixBtn = document.getElementById('matrix-btn');
         if (matrixBtn) {
             matrixBtn.href = './matrix.html#' + encodeURIComponent(name);
@@ -1268,7 +1272,9 @@ async function uploadFile(file) {
         isPresolved = false;
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
-        downloadBtn.classList.add('hidden');
+        downloadBtn.href = URL.createObjectURL(file);
+        downloadBtn.setAttribute('download', file.name.endsWith('.gz') ? file.name : file.name + '.gz');
+        downloadBtn.classList.remove('hidden');
         var benchmarkBtn2 = document.getElementById('benchmark-btn');
         if (benchmarkBtn2) benchmarkBtn2.classList.add('hidden');
         // Cache the decompressed text for recents
@@ -1418,7 +1424,7 @@ function classifyConstraint(c) {
         tags.push('integer knapsack');
     }
 
-    if (isEq && tags.indexOf('set partitioning') === -1 && tags.indexOf('bin. knapsack eq.') === -1) tags.push('equality');
+    if (isEq && tags.indexOf('set partitioning') === -1) tags.push('equality');
 
     return tags;
 }
@@ -1436,15 +1442,7 @@ function classifyConstraints() {
 }
 
 function applyFilters() {
-    constraintsList.querySelectorAll('.constraint-row').forEach(row => {
-        const typeOk = !activeTypeFilter || (row.dataset.tags || '').split(',').includes(activeTypeFilter);
-        const varOk = !activeVarFilter || row.querySelector('.var-hover[data-var="' + activeVarFilter + '"]');
-        if (typeOk && varOk) {
-            row.classList.remove('filtered-out');
-        } else {
-            row.classList.add('filtered-out');
-        }
-    });
+    renderConstraintsInit();
     updateFilterPill();
 }
 
@@ -2222,6 +2220,20 @@ function renderConstraintsInit() {
             ? Array.from(activeComponentFilter.rowSet).sort(function(a, b) { return a - b; })
             : null;
     }
+
+    // Apply type and variable filters on top
+    if (activeTypeFilter || activeVarFilter) {
+        const base = filteredConIndices
+            ? filteredConIndices
+            : modelData.constraints.map((_, i) => i);
+        filteredConIndices = base.filter(i => {
+            const con = modelData.constraints[i];
+            const typeOk = !activeTypeFilter || (con._tags && con._tags.includes(activeTypeFilter));
+            const varOk = !activeVarFilter || con.terms.some(t => String(t.var_index) === activeVarFilter);
+            return typeOk && varOk;
+        });
+    }
+
     const total = filteredConIndices ? filteredConIndices.length : modelData.constraints.length;
     constraintsCount.textContent = total.toLocaleString() + ' total';
 
@@ -2256,11 +2268,6 @@ function createConstraintRow(constraint, idx) {
     row.className = 'constraint-row';
     const tags = constraint._tags || [];
     row.dataset.tags = tags.join(',');
-    const typeOk = !activeTypeFilter || tags.includes(activeTypeFilter);
-    const varOk = !activeVarFilter || constraint.terms.some(t => String(t.var_index) === activeVarFilter);
-    if (!typeOk || !varOk) {
-        row.classList.add('filtered-out');
-    }
     row.style.animationDelay = Math.min(idx - (constraintsShown), 30) * 3 + 'ms';
 
     const name = document.createElement('span');
