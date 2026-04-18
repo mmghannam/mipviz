@@ -35,8 +35,10 @@ function loadBenchmarkIndex() {
 let currentUploadFile = null;
 let constraintsShown = 0;
 let mathMode = false;
-let activeTypeFilter = null;
-let activeVarFilter = null;
+let activeTypeFilter = new Set();   // Set<string> of constraint type tags
+let typeFilterOp = 'or';            // 'or' | 'and'
+let activeVarFilter = new Set();    // Set<string> of variable indices (as strings)
+let varFilterOp = 'and';            // 'and' | 'or'
 let activeConNameFilter = '';
 let activeVarNameFilter = '';
 let activeComponentFilter = null; // { index, rowSet, colSet } or null
@@ -64,39 +66,124 @@ const solveLpBtn = document.getElementById('solve-lp-btn');
 const solveMipBtn = document.getElementById('solve-mip-btn');
 const filterPill = document.getElementById('active-filter-pill');
 
+function renderChipGroup(label, values, op, kind) {
+    // Build a "Label: [v1 ×] op [v2 ×] ..." group. The op is clickable to flip it
+    // when there are ≥2 chips; otherwise it's hidden.
+    var chips = values.map(function(v) {
+        return '<span class="filter-chip">' + escapeHtml(v.display) +
+               '<button class="filter-chip-remove" data-action="remove-' + kind + '"' +
+               ' data-value="' + escapeAttr(v.raw) + '" title="Remove">×</button></span>';
+    });
+    var sep = ' <button class="filter-op" data-action="toggle-' + kind + '-op" title="Click to toggle">' +
+              escapeHtml(op) + '</button> ';
+    var body = chips.length > 1 ? chips.join(sep) : chips.join('');
+    return '<span class="filter-group"><span class="filter-label">' + label + ':</span> ' + body + '</span>';
+}
+
 function updateFilterPill() {
     if (!filterPill) return;
     var parts = [];
-    if (activeTypeFilter) parts.push('Type: <strong>' + escapeHtml(activeTypeFilter) + '</strong>');
-    if (activeVarFilter) {
-        var vName = modelData && modelData.variables[activeVarFilter] ? modelData.variables[activeVarFilter].name : 'x' + activeVarFilter;
-        parts.push('Variable: <strong>' + escapeHtml(vName) + '</strong>');
+    if (activeTypeFilter.size > 0) {
+        var typeValues = Array.from(activeTypeFilter).map(function(t) { return { raw: t, display: t }; });
+        parts.push(renderChipGroup('Type', typeValues, typeFilterOp, 'type'));
     }
-    if (activeComponentFilter) parts.push('Component: <strong>' + activeComponentFilter.stat.index + '</strong>');
+    if (activeVarFilter.size > 0) {
+        var varValues = Array.from(activeVarFilter).map(function(vi) {
+            var name = modelData && modelData.variables[vi] ? modelData.variables[vi].name : 'x' + vi;
+            return { raw: vi, display: name };
+        });
+        parts.push(renderChipGroup('Contains', varValues, varFilterOp, 'var'));
+    }
+    if (activeComponentFilter) parts.push('<span class="filter-group"><span class="filter-label">Component:</span> <strong>' + activeComponentFilter.stat.index + '</strong></span>');
     if (activeConstraintVarFilter != null) {
         var cName = modelData && modelData.constraints[activeConstraintVarFilter] ? modelData.constraints[activeConstraintVarFilter].name : '#' + activeConstraintVarFilter;
-        parts.push('Constraint: <strong>' + escapeHtml(cName) + '</strong>');
+        parts.push('<span class="filter-group"><span class="filter-label">Constraint:</span> <strong>' + escapeHtml(cName) + '</strong></span>');
     }
-    if (activeConNameFilter) parts.push('Con. name: <strong>' + escapeHtml(activeConNameFilter) + '</strong>');
-    if (activeVarNameFilter) parts.push('Var. name: <strong>' + escapeHtml(activeVarNameFilter) + '</strong>');
+    if (activeConNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Con. name:</span> <strong>' + escapeHtml(activeConNameFilter) + '</strong></span>');
+    if (activeVarNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Var. name:</span> <strong>' + escapeHtml(activeVarNameFilter) + '</strong></span>');
     if (parts.length === 0) {
         filterPill.classList.add('hidden');
         updateHashState();
         return;
     }
-    filterPill.innerHTML = '<span class="filter-label">Filtered by</span> ' + parts.join(' + ') +
-        ' <button class="filter-clear" onclick="clearAllFilters()">Clear all</button>';
+    filterPill.innerHTML = '<span class="filter-label filter-label-lead">Filtered by</span> ' + parts.join(' <span class="filter-group-sep">+</span> ') +
+        ' <button class="filter-clear" data-action="clear-all">Clear all</button>';
     filterPill.classList.remove('hidden');
     updateHashState();
 }
 
+// Delegated handlers for the filter pill (chip remove, operator toggle, clear all).
+if (filterPill) {
+    filterPill.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        var action = btn.dataset.action;
+        if (action === 'clear-all') {
+            clearAllFilters();
+        } else if (action === 'remove-type') {
+            removeTypeFilter(btn.dataset.value);
+        } else if (action === 'remove-var') {
+            removeVarFilter(btn.dataset.value);
+        } else if (action === 'toggle-type-op') {
+            typeFilterOp = typeFilterOp === 'or' ? 'and' : 'or';
+            applyFilters();
+        } else if (action === 'toggle-var-op') {
+            varFilterOp = varFilterOp === 'and' ? 'or' : 'and';
+            applyFilters();
+        }
+    });
+}
+
+function removeTypeFilter(type) {
+    if (!activeTypeFilter.delete(type)) return;
+    var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(type) + '"]');
+    if (tag) tag.classList.remove('active');
+    applyFilters();
+}
+
+function constraintMatchesTypeFilter(con) {
+    if (activeTypeFilter.size === 0) return true;
+    var tags = con._tags || [];
+    if (typeFilterOp === 'and') {
+        for (var t of activeTypeFilter) { if (tags.indexOf(t) === -1) return false; }
+        return true;
+    }
+    for (var t of activeTypeFilter) { if (tags.indexOf(t) !== -1) return true; }
+    return false;
+}
+
+function constraintMatchesVarFilter(con) {
+    if (activeVarFilter.size === 0) return true;
+    var present = new Set(con.terms.map(function(t) { return String(t.var_index); }));
+    if (varFilterOp === 'or') {
+        for (var v of activeVarFilter) { if (present.has(v)) return true; }
+        return false;
+    }
+    for (var v of activeVarFilter) { if (!present.has(v)) return false; }
+    return true;
+}
+
+function removeVarFilter(varIdx) {
+    if (!activeVarFilter.delete(varIdx)) return;
+    if (activeVarFilter.size === 0) {
+        document.querySelectorAll('.var-hover').forEach(function(s) { s.classList.remove('var-highlight-persist'); });
+    } else {
+        document.querySelectorAll('.var-hover[data-var="' + varIdx + '"]').forEach(function(s) {
+            s.classList.remove('var-highlight-persist');
+        });
+    }
+    applyFilters();
+}
+
 function clearAllFilters() {
-    if (activeTypeFilter) {
-        activeTypeFilter = null;
+    if (activeTypeFilter.size > 0) {
+        activeTypeFilter.clear();
+        typeFilterOp = 'or';
         document.querySelectorAll('.type-tag').forEach(function(t) { t.classList.remove('active'); });
     }
-    if (activeVarFilter) {
-        activeVarFilter = null;
+    if (activeVarFilter.size > 0) {
+        activeVarFilter.clear();
+        varFilterOp = 'and';
         document.querySelectorAll('.var-hover').forEach(function(s) { s.classList.remove('var-highlight-persist'); });
     }
     if (activeComponentFilter) {
@@ -124,8 +211,14 @@ function clearAllFilters() {
 function updateHashState() {
     if (!currentInstanceName) return;
     var hash = '#instance=' + encodeURIComponent(currentInstanceName);
-    if (activeTypeFilter) hash += '&type=' + encodeURIComponent(activeTypeFilter);
-    if (activeVarFilter) hash += '&var=' + encodeURIComponent(activeVarFilter);
+    if (activeTypeFilter.size > 0) {
+        hash += '&type=' + Array.from(activeTypeFilter).map(encodeURIComponent).join(',');
+        if (typeFilterOp !== 'or') hash += '&typeOp=' + typeFilterOp;
+    }
+    if (activeVarFilter.size > 0) {
+        hash += '&var=' + Array.from(activeVarFilter).map(encodeURIComponent).join(',');
+        if (varFilterOp !== 'and') hash += '&varOp=' + varFilterOp;
+    }
     history.replaceState(null, '', hash);
 }
 
@@ -812,10 +905,7 @@ document.getElementById('solve-visible-btn').addEventListener('click', async fun
     // Apply type and var filters
     var visible = allIndices.filter(function(i) {
         var c = modelData.constraints[i];
-        var tags = c._tags || [];
-        if (activeTypeFilter && !tags.includes(activeTypeFilter)) return false;
-        if (activeVarFilter && !c.terms.some(function(t) { return String(t.var_index) === activeVarFilter; })) return false;
-        return true;
+        return constraintMatchesTypeFilter(c) && constraintMatchesVarFilter(c);
     });
 
     if (visible.length === 0) { showToast('No visible constraints'); return; }
@@ -1344,7 +1434,8 @@ function showResults() {
     uploadStatus.classList.add('hidden');
     resultsSection.classList.remove('hidden');
 
-    activeVarFilter = null;
+    activeVarFilter = new Set();
+    varFilterOp = 'and';
     activeComponentFilter = null;
     lpSolution = null;
     solveLpBtn.textContent = 'Solve LP';
@@ -1475,7 +1566,8 @@ function classifyConstraints() {
         }
     }
     modelData._constraintTypes = counts;
-    activeTypeFilter = null;
+    activeTypeFilter = new Set();
+    typeFilterOp = 'or';
 }
 
 function applyFilters() {
@@ -1534,18 +1626,15 @@ function renderStats(stats) {
           ).join('')
         : '';
 
-    // Click to filter
+    // Click to toggle membership in the type filter set (multi-select).
     typesEl.querySelectorAll('.type-tag').forEach(tag => {
         tag.addEventListener('click', () => {
             const type = tag.dataset.type;
-            if (activeTypeFilter === type) {
-                activeTypeFilter = null;
+            if (activeTypeFilter.has(type)) {
+                activeTypeFilter.delete(type);
                 tag.classList.remove('active');
-                showToast('Filter cleared');
             } else {
-                activeTypeFilter = type;
-                showToast('Filtering by ' + type);
-                typesEl.querySelectorAll('.type-tag').forEach(t => t.classList.remove('active'));
+                activeTypeFilter.add(type);
                 tag.classList.add('active');
             }
             applyFilters();
@@ -2270,15 +2359,15 @@ function renderConstraintsInit() {
     }
 
     // Apply type, variable, and name filters on top
-    if (activeTypeFilter || activeVarFilter || activeConNameFilter) {
+    if (activeTypeFilter.size > 0 || activeVarFilter.size > 0 || activeConNameFilter) {
         const base = filteredConIndices
             ? filteredConIndices
             : modelData.constraints.map((_, i) => i);
         const nameLower = activeConNameFilter ? activeConNameFilter.toLowerCase() : '';
         filteredConIndices = base.filter(i => {
             const con = modelData.constraints[i];
-            const typeOk = !activeTypeFilter || (con._tags && con._tags.includes(activeTypeFilter));
-            const varOk = !activeVarFilter || con.terms.some(t => String(t.var_index) === activeVarFilter);
+            const typeOk = constraintMatchesTypeFilter(con);
+            const varOk = constraintMatchesVarFilter(con);
             const nameOk = !activeConNameFilter || con.name.toLowerCase().includes(nameLower);
             return typeOk && varOk && nameOk;
         });
@@ -2586,7 +2675,7 @@ document.addEventListener('mouseover', (e) => {
     const el = e.target.closest('.var-hover[data-var]');
     if (!el) return;
     const varIdx = el.dataset.var;
-    if (activeVarFilter === varIdx) return;
+    if (activeVarFilter.has(varIdx)) return;
     document.querySelectorAll('.var-hover[data-var="' + varIdx + '"]').forEach(s => {
         s.classList.add('var-highlight-hover');
     });
@@ -2605,22 +2694,16 @@ document.addEventListener('click', (e) => {
     const el = e.target.closest('.var-hover[data-var]') || e.target.closest('.var-link[data-var]');
     if (!el) return;
     const varIdx = el.dataset.var;
-    if (activeVarFilter === varIdx) {
-        // Clear filter
-        activeVarFilter = null;
-        document.querySelectorAll('.var-hover').forEach(s => s.classList.remove('var-highlight-persist'));
-        showToast('Filter cleared');
+    if (activeVarFilter.has(varIdx)) {
+        activeVarFilter.delete(varIdx);
+        document.querySelectorAll('.var-hover[data-var="' + varIdx + '"]').forEach(s => {
+            s.classList.remove('var-highlight-persist');
+        });
     } else {
-        // Set filter
-        activeVarFilter = varIdx;
-        showToast('Filtering by x' + varIdx);
-        document.querySelectorAll('.var-hover').forEach(s => {
+        activeVarFilter.add(varIdx);
+        document.querySelectorAll('.var-hover[data-var="' + varIdx + '"]').forEach(s => {
             s.classList.remove('var-highlight-hover');
-            if (s.dataset.var === varIdx) {
-                s.classList.add('var-highlight-persist');
-            } else {
-                s.classList.remove('var-highlight-persist');
-            }
+            s.classList.add('var-highlight-persist');
         });
     }
     applyFilters();
@@ -3498,15 +3581,23 @@ function applyHashFilters(params) {
     if (!params) params = parseHashParams();
     if (!params.type && !params.var) return;
     if (params.type && modelData) {
-        activeTypeFilter = params.type;
-        var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(params.type) + '"]');
-        if (tag) tag.classList.add('active');
+        params.type.split(',').forEach(function(t) {
+            if (!t) return;
+            activeTypeFilter.add(t);
+            var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(t) + '"]');
+            if (tag) tag.classList.add('active');
+        });
+        if (params.typeOp === 'and' || params.typeOp === 'or') typeFilterOp = params.typeOp;
     }
     if (params.var && modelData) {
-        activeVarFilter = params.var;
-        document.querySelectorAll('.var-hover').forEach(function(s) {
-            if (s.dataset.var === params.var) s.classList.add('var-highlight-persist');
+        params.var.split(',').forEach(function(v) {
+            if (!v) return;
+            activeVarFilter.add(v);
+            document.querySelectorAll('.var-hover[data-var="' + v + '"]').forEach(function(s) {
+                s.classList.add('var-highlight-persist');
+            });
         });
+        if (params.varOp === 'and' || params.varOp === 'or') varFilterOp = params.varOp;
     }
     applyFilters();
     var constraintsDetails = constraintsList.closest('details');

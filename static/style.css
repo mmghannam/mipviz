@@ -2048,6 +2048,57 @@ main {
     color: var(--text);
     border-color: var(--text-muted);
 }
+.active-filter-pill .filter-group {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.active-filter-pill .filter-group-sep {
+    opacity: 0.4;
+    margin: 0 2px;
+}
+.active-filter-pill .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 6px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-weight: 500;
+}
+.active-filter-pill .filter-chip-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+    border-radius: 2px;
+}
+.active-filter-pill .filter-chip-remove:hover {
+    color: var(--text);
+    background: var(--bg-raised);
+}
+.active-filter-pill .filter-op {
+    background: none;
+    border: 1px dashed var(--border);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.active-filter-pill .filter-op:hover {
+    border-style: solid;
+    background: var(--bg-base);
+}
 
 /* Component filter banner */
 .component-filter-banner {
@@ -2732,6 +2783,7 @@ th.col-cons-type.hidden {
 .bank-table .col-name {
     font-weight: 500;
 }
+
 
 .bank-table .col-name a {
     color: var(--accent);
