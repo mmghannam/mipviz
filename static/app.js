@@ -1248,6 +1248,7 @@ if (mathToggle) mathToggle.addEventListener('click', () => {
     if (!modelData) return;
     mathMode = !mathMode;
     mathToggle.textContent = mathMode ? 'Code' : 'LaTeX';
+    if (typeof clearAggregation === 'function') clearAggregation();
     renderObjective();
     renderVariablesInit();
     renderConstraintsInit();
@@ -2405,6 +2406,7 @@ function renderMoreConstraints() {
 function createConstraintRow(constraint, idx) {
     const row = document.createElement('div');
     row.className = 'constraint-row';
+    row.dataset.conIdx = idx;
     const tags = constraint._tags || [];
     row.dataset.tags = tags.join(',');
     row.style.animationDelay = Math.min(idx - (constraintsShown), 30) * 3 + 'ms';
@@ -2433,7 +2435,8 @@ function createConstraintRow(constraint, idx) {
     if (mathMode) {
         renderKatex(expr, formatConstraintLatex(constraint), false);
     } else {
-        expr.innerHTML = formatConstraint(constraint);
+        expr.innerHTML = formatConstraint(constraint, idx);
+        applyAggMarkers(row, expr, idx);
     }
 
     // Single-constraint solve button
@@ -2534,32 +2537,41 @@ function createConstraintRow(constraint, idx) {
     return row;
 }
 
-function formatConstraint(c) {
+function formatConstraint(c, idx) {
     const terms = c.terms;
     const lhsHtml = formatTerms(terms);
+    const canGrab = !mathMode && typeof idx === 'number';
 
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
+    const isRanged = !lowInf && !upInf && Math.abs(c.lower - c.upper) >= 1e-10;
+
+    // Bound chunk with relation on the right (e.g. "≤ 60"). Grabbed as one unit.
+    const wrapRhsChunk = function(side, relSym, num) {
+        const inner = '<span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(num) + '</span>';
+        if (!canGrab) return inner;
+        return '<span class="agg-grab agg-rhs" data-side="' + side + '" data-con-idx="' + idx + '">' + inner + '</span>';
+    };
+    // Bound chunk with relation on the left (ranged rows: "lower ≤ ").
+    const wrapLhsChunk = function(side, num, relSym) {
+        const inner = '<span class="bound-val">' + formatNum(num) + '</span> <span class="relation">' + relSym + '</span>';
+        if (!canGrab) return inner;
+        return '<span class="agg-grab agg-rhs" data-side="' + side + '" data-con-idx="' + idx + '">' + inner + '</span>';
+    };
 
     if (lowInf && upInf) {
-        // Free row
         return lhsHtml + ' <span class="relation">free</span>';
     }
     if (!lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10) {
-        // Equality
-        return lhsHtml + ' <span class="relation">=</span> <span class="bound-val">' + formatNum(c.lower) + '</span>';
+        return lhsHtml + ' ' + wrapRhsChunk('upper', '=', c.lower);
     }
     if (lowInf) {
-        // <= upper
-        return lhsHtml + ' <span class="relation">&le;</span> <span class="bound-val">' + formatNum(c.upper) + '</span>';
+        return lhsHtml + ' ' + wrapRhsChunk('upper', '&le;', c.upper);
     }
     if (upInf) {
-        // >= lower
-        return lhsHtml + ' <span class="relation">&ge;</span> <span class="bound-val">' + formatNum(c.lower) + '</span>';
+        return lhsHtml + ' ' + wrapRhsChunk('lower', '&ge;', c.lower);
     }
-    // Ranged
-    return '<span class="bound-val">' + formatNum(c.lower) + '</span> <span class="relation">&le;</span> ' +
-           lhsHtml + ' <span class="relation">&le;</span> <span class="bound-val">' + formatNum(c.upper) + '</span>';
+    return wrapLhsChunk('lower', c.lower, '&le;') + ' ' + lhsHtml + ' ' + wrapRhsChunk('upper', '&le;', c.upper);
 }
 
 function formatTerms(terms) {
@@ -2602,6 +2614,693 @@ function formatNum(n) {
     // Up to 6 significant digits, trim trailing zeros
     return parseFloat(n.toPrecision(6)).toString();
 }
+
+// ─── Constraint aggregation playground ───────────────────────────────────────
+// Click a side (LHS or a bound) of a constraint to start an aggregation; click
+// sides of other constraints to add them. Mode is fixed by the first grab.
+// Each contributor's sign is determined by whether the row's canonical direction
+// (the direction of its finite bound, or the direction implied by the grabbed
+// bound on a ranged row) matches the aggregate's mode. Scale is user-editable.
+
+const aggState = {
+    mode: null,           // '<=' | '>=' | null (null = no aggregation)
+    terms: new Map(),     // string key -> { sign: +1|-1, scale: ≥0, side, syntheticConstraint? }
+    globalScale: 1,       // multiplier applied to the whole aggregate
+    cgApplied: false      // true → display floor/ceil of coeffs and rhs
+};
+let aggPanelEl = null;
+
+function canonicalDirection(c, side) {
+    // The inequality direction when we read this side as the "expr op bound" form
+    // (expr on the left). Independent of which side was grabbed for bound grabs.
+    const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
+    const upInf = c.upper === null || c.upper > INF_THRESHOLD;
+    const isEq = !lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10;
+    if (side === 'lhs') {
+        if (lowInf && upInf) return null;  // free
+        if (isEq) return '<=';              // arbitrary; mode toggle can flip
+        if (lowInf) return '<=';            // expr <= upper
+        if (upInf) return '>=';             // expr >= lower
+        return null;                        // ranged — LHS ambiguous
+    }
+    if (side === 'upper') return '<=';      // expr <= upper
+    if (side === 'lower') return '>=';      // expr >= lower
+    return null;
+}
+
+function modeFor(c, side) {
+    // Mode = canonical direction. Grabbing a bound chunk reads the row in
+    // its natural form (`expr ≤ upper` or `expr ≥ lower`), so the first grab
+    // initialises the aggregate in that direction with sign=+1.
+    return canonicalDirection(c, side);
+}
+
+function boundValueFor(c, side) {
+    const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
+    const upInf = c.upper === null || c.upper > INF_THRESHOLD;
+    if (side === 'lhs') {
+        if (!upInf) return c.upper;
+        if (!lowInf) return c.lower;
+        return 0;
+    }
+    if (side === 'upper') return c.upper;
+    if (side === 'lower') return c.lower;
+    return 0;
+}
+
+function signForContribution(c, side, aggMode) {
+    const canon = canonicalDirection(c, side);
+    if (!canon || !aggMode) return 0;
+    return canon === aggMode ? 1 : -1;
+}
+
+function onGrab(conIdx, side) {
+    const c = modelData.constraints[conIdx];
+    if (!c) return;
+    const implied = modeFor(c, side);
+    if (!implied) return;  // ranged LHS or free row
+    const key = String(conIdx);
+
+    if (aggState.mode === null) {
+        aggState.mode = implied;
+        const sign = signForContribution(c, side, aggState.mode);
+        aggState.terms.set(key, { sign: sign || 1, scale: 1, side });
+    } else if (aggState.terms.has(key)) {
+        const existing = aggState.terms.get(key);
+        if (existing.side === side) {
+            // Re-grab same side → remove
+            aggState.terms.delete(key);
+            if (aggState.terms.size === 0) aggState.mode = null;
+        } else {
+            // Different side of same row → re-record with the new side (sign may change)
+            const sign = signForContribution(c, side, aggState.mode) || 1;
+            aggState.terms.set(key, { sign, scale: existing.scale, side });
+        }
+    } else {
+        const sign = signForContribution(c, side, aggState.mode) || 1;
+        aggState.terms.set(key, { sign, scale: 1, side });
+    }
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+function clearAggregation() {
+    aggState.mode = null;
+    aggState.terms.clear();
+    aggState.globalScale = 1;
+    aggState.cgApplied = false;
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+// Pick the canonical-direction bound side for a row: `upper` for ≤ / equality,
+// `lower` for ≥, null for free or ranged (ambiguous).
+function canonicalSide(c) {
+    const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
+    const upInf = c.upper === null || c.upper > INF_THRESHOLD;
+    if (lowInf && upInf) return null;
+    if (!lowInf && !upInf && Math.abs(c.lower - c.upper) >= 1e-10) return null;  // ranged
+    if (lowInf) return 'upper';   // expr ≤ upper
+    if (upInf) return 'lower';    // expr ≥ lower
+    return 'upper';               // equality
+}
+
+// Bulk-add every currently visible (filtered) constraint to the aggregation,
+// grabbed by its canonical bound. Skips ranged/free and already-included rows.
+function addAllVisibleToAggregation() {
+    if (!modelData) return;
+    const indices = filteredConIndices || modelData.constraints.map(function(_, i) { return i; });
+    if (indices.length === 0) return;
+
+    if (aggState.mode === null) {
+        for (let i = 0; i < indices.length; i++) {
+            const c = modelData.constraints[indices[i]];
+            const s = canonicalSide(c);
+            if (!s) continue;
+            const m = modeFor(c, s);
+            if (m) { aggState.mode = m; break; }
+        }
+        if (aggState.mode === null) return;
+    }
+
+    let added = 0;
+    for (let i = 0; i < indices.length; i++) {
+        const idx = indices[i];
+        const key = String(idx);
+        if (aggState.terms.has(key)) continue;
+        const c = modelData.constraints[idx];
+        const s = canonicalSide(c);
+        if (!s) continue;
+        const sign = signForContribution(c, s, aggState.mode) || 1;
+        aggState.terms.set(key, { sign: sign, scale: 1, side: s });
+        added++;
+    }
+    if (added === 0) return;
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+function flipAggMode() {
+    if (aggState.mode === null) return;
+    aggState.mode = aggState.mode === '<=' ? '>=' : '<=';
+    for (const [key, term] of aggState.terms) {
+        const c = term.syntheticConstraint || modelData.constraints[key];
+        term.sign = signForContribution(c, term.side, aggState.mode) || term.sign;
+    }
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+function combineAggregate() {
+    const coefByVar = new Map();
+    let rhs = 0;
+    const g = (typeof aggState.globalScale === 'number' && aggState.globalScale >= 0) ? aggState.globalScale : 1;
+    for (const [key, term] of aggState.terms) {
+        const c = term.syntheticConstraint || modelData.constraints[key];
+        const mult = g * term.sign * term.scale;
+        for (const t of c.terms) {
+            const prev = coefByVar.get(t.var_index);
+            if (prev) {
+                prev.coeff += mult * t.coeff;
+            } else {
+                coefByVar.set(t.var_index, { var_index: t.var_index, coeff: mult * t.coeff, var_type: t.var_type, var_name: t.var_name });
+            }
+        }
+        rhs += mult * boundValueFor(c, term.side);
+    }
+    const terms = [];
+    for (const info of coefByVar.values()) {
+        if (Math.abs(info.coeff) > 1e-10) terms.push(info);
+    }
+    terms.sort(function(a, b) { return a.var_index - b.var_index; });
+    return { terms: terms, rhs: rhs };
+}
+
+// Display variant: applies CG strengthening on top of combineAggregate when enabled.
+// CG: for `Σ a_i x_i ≤ b` with x_i ∈ ℤ_{≥0}, the inequality `Σ ⌊a_i⌋ x_i ≤ ⌊b⌋` is valid.
+// For ≥ aggregates, ceil instead of floor.
+function combineDisplay() {
+    const r = combineAggregate();
+    if (!aggState.cgApplied) return r;
+    const round = aggState.mode === '<=' ? Math.floor : Math.ceil;
+    const rounded = [];
+    for (const t of r.terms) {
+        const c = round(t.coeff);
+        if (Math.abs(c) > 1e-10) rounded.push({ var_index: t.var_index, coeff: c, var_type: t.var_type, var_name: t.var_name });
+    }
+    return { terms: rounded, rhs: round(r.rhs) };
+}
+
+function aggregateIsCgEligible() {
+    if (aggState.mode === null || aggState.terms.size === 0) return false;
+    const combined = combineAggregate();
+    if (combined.terms.length === 0) return false;
+    for (const t of combined.terms) {
+        if (t.var_type !== 'integer' && t.var_type !== 'binary') return false;
+        const v = modelData.variables[t.var_index];
+        if (v.lower === null || v.lower < -1e-12) return false;
+    }
+    return true;
+}
+
+function applyAggMarkers(row, expr, idx) {
+    const key = String(idx);
+    if (!aggState.terms.has(key)) return;
+    const term = aggState.terms.get(key);
+    row.classList.add('agg-contributing');
+    const handle = expr.querySelector('.agg-grab[data-side="' + term.side + '"]');
+    if (handle) {
+        handle.classList.add('agg-grabbed');
+        handle.dataset.aggScalar = aggScalarLabel(term);
+    }
+}
+
+function aggScalarLabel(term) {
+    const signStr = term.sign < 0 ? '−' : '';
+    const scaleStr = Math.abs(term.scale - 1) < 1e-10 ? '' : formatNum(term.scale);
+    if (!signStr && !scaleStr) return '×1';
+    return '×' + signStr + (scaleStr || '1');
+}
+
+function refreshAllAggMarkers() {
+    // Clear all prior agg markers, then re-apply from state.
+    constraintsList.querySelectorAll('.agg-contributing').forEach(function(r) {
+        r.classList.remove('agg-contributing');
+    });
+    constraintsList.querySelectorAll('.agg-grabbed').forEach(function(el) {
+        el.classList.remove('agg-grabbed');
+        delete el.dataset.aggScalar;
+    });
+    for (const [key, term] of aggState.terms) {
+        if (term.syntheticConstraint) continue;  // bound substitution — no DOM row
+        const row = constraintsList.querySelector('.constraint-row[data-con-idx="' + key + '"]');
+        if (!row) continue;
+        row.classList.add('agg-contributing');
+        const handle = row.querySelector('.agg-grab[data-side="' + term.side + '"]');
+        if (handle) {
+            handle.classList.add('agg-grabbed');
+            handle.dataset.aggScalar = aggScalarLabel(term);
+        }
+    }
+}
+
+function ensureAggPanel() {
+    if (aggPanelEl) return;
+    aggPanelEl = document.createElement('div');
+    aggPanelEl.className = 'aggregation-panel hidden';
+    constraintsList.parentNode.insertBefore(aggPanelEl, constraintsList);
+    // Click on a coefficient in the aggregate line to open zero-out menu
+    aggPanelEl.addEventListener('click', function(e) {
+        const target = e.target.closest('.agg-zero');
+        if (!target || !aggPanelEl.contains(target)) return;
+        e.stopPropagation();
+        const varIndex = parseInt(target.dataset.varIndex, 10);
+        if (isNaN(varIndex)) return;
+        showZeroOutMenu(varIndex, target);
+    });
+}
+
+// Aggregate-line term renderer: wraps each (coeff + var) in a clickable .agg-zero
+function formatAggregateTerms(terms) {
+    if (terms.length === 0) return '<span class="coeff">0</span>';
+    let html = '';
+    for (let i = 0; i < terms.length; i++) {
+        const t = terms[i];
+        const coeff = t.coeff;
+        const absCoeff = Math.abs(coeff);
+        const sign = coeff < 0 ? '−' : '+';
+        const varClass = 'var-' + t.var_type;
+        if (i === 0) {
+            if (coeff < 0) html += '<span class="op">−</span>';
+        } else {
+            html += ' <span class="op">' + sign + '</span> ';
+        }
+        let inner = '';
+        if (Math.abs(absCoeff - 1) > 1e-10) {
+            inner += '<span class="coeff">' + formatNum(absCoeff) + '</span>';
+        }
+        inner += '<span class="' + varClass + '">x' + t.var_index + '</span>';
+        html += '<span class="agg-zero" data-var-index="' + t.var_index + '" title="Click to cancel x' + t.var_index + ' from the aggregate">' + inner + '</span>';
+    }
+    return html;
+}
+
+// Build a synthetic single-variable bound constraint (used for substitution).
+function _boundSyntheticConstraint(varIndex, bkind) {
+    const v = modelData.variables[varIndex];
+    const bound = bkind === 'lb' ? v.lower : v.upper;
+    return {
+        name: v.name + (bkind === 'ub' ? ' \u2264 ' : ' \u2265 ') + formatNum(bound),
+        terms: [{ var_index: varIndex, coeff: 1, var_type: v.var_type, var_name: v.name }],
+        lower: bkind === 'lb' ? bound : null,
+        upper: bkind === 'ub' ? bound : null,
+    };
+}
+
+// Two ways to cancel a variable from the aggregate:
+// (1) adjust an existing contributor's scale to make the var's coefficient sum to 0
+// (2) substitute the variable with a finite lower/upper bound (adds a synthetic bound row)
+function computeZeroOutOptions(varIndex) {
+    let aggCoef = 0;
+    const contribs = [];
+    for (const [key, term] of aggState.terms) {
+        const c = term.syntheticConstraint || modelData.constraints[key];
+        let varCoef = 0;
+        for (const t of c.terms) {
+            if (t.var_index === varIndex) { varCoef = t.coeff; break; }
+        }
+        aggCoef += term.sign * term.scale * varCoef;
+        if (Math.abs(varCoef) > 1e-12) {
+            contribs.push({ key: key, term: term, varCoef: varCoef, name: c.name });
+        }
+    }
+
+    const scalarOptions = contribs.map(function(x) {
+        const newScale = x.term.scale - aggCoef / (x.term.sign * x.varCoef);
+        const feasible = newScale >= -1e-9;
+        return {
+            kind: 'scalar',
+            key: x.key,
+            name: x.name,
+            curScale: x.term.scale,
+            newScale: feasible ? Math.max(0, newScale) : newScale,
+            feasible: feasible,
+        };
+    });
+
+    const boundOptions = [];
+    if (Math.abs(aggCoef) > 1e-12) {
+        const v = modelData.variables[varIndex];
+        const lowInf = v.lower === null || v.lower < -INF_THRESHOLD;
+        const upInf = v.upper === null || v.upper > INF_THRESHOLD;
+        ['lb', 'ub'].forEach(function(bkind) {
+            if (bkind === 'lb' && lowInf) return;
+            if (bkind === 'ub' && upInf) return;
+            const synth = _boundSyntheticConstraint(varIndex, bkind);
+            const side = bkind === 'ub' ? 'upper' : 'lower';
+            const sign = signForContribution(synth, side, aggState.mode);
+            if (!sign) return;
+            // Need: sign · scale · 1 + aggCoef = 0  →  scale = −aggCoef / sign
+            const scale = -aggCoef / sign;
+            const feasible = scale >= -1e-9;
+            const key = bkind + ':' + varIndex;
+            boundOptions.push({
+                kind: 'bound',
+                key: key,
+                bkind: bkind,
+                varIndex: varIndex,
+                synth: synth,
+                side: side,
+                sign: sign,
+                newScale: feasible ? Math.max(0, scale) : scale,
+                feasible: feasible,
+                name: synth.name,
+                alreadyApplied: aggState.terms.has(key),
+            });
+        });
+    }
+
+    return { scalarOptions: scalarOptions, boundOptions: boundOptions };
+}
+
+let _zeroMenuEl = null;
+function _zeroMenuOutsideClick(e) {
+    if (_zeroMenuEl && !_zeroMenuEl.contains(e.target)) closeZeroOutMenu();
+}
+function closeZeroOutMenu() {
+    if (_zeroMenuEl) {
+        _zeroMenuEl.remove();
+        _zeroMenuEl = null;
+        document.removeEventListener('mousedown', _zeroMenuOutsideClick, true);
+        document.removeEventListener('keydown', _zeroMenuKeydown, true);
+    }
+}
+function _zeroMenuKeydown(e) {
+    if (e.key === 'Escape') closeZeroOutMenu();
+}
+function showZeroOutMenu(varIndex, anchorEl) {
+    closeZeroOutMenu();
+    const opts = computeZeroOutOptions(varIndex);
+    const allOptions = opts.scalarOptions.concat(opts.boundOptions);
+    if (allOptions.length === 0) return;
+
+    const menu = document.createElement('div');
+    menu.className = 'agg-zero-menu';
+    let html = '<div class="agg-zero-menu-header">Cancel x' + varIndex + '</div>';
+
+    if (opts.scalarOptions.length > 0) {
+        html += '<div class="agg-zero-section">re-scale a contributor</div>';
+        opts.scalarOptions.forEach(function(opt, i) {
+            const cls = 'agg-zero-option' + (opt.feasible ? '' : ' agg-zero-infeasible');
+            const scaleCls = 'agg-zero-scale' + (opt.feasible ? '' : ' infeasible');
+            const titleHint = opt.feasible ? '' : ' title="Negative — applying flips this contributor\'s sign"';
+            html += '<div class="' + cls + '" data-opt-kind="scalar" data-opt-idx="' + i + '"' + titleHint + '>'
+                + '<span class="agg-zero-name">' + escapeHtml(opt.name) + '</span>'
+                + '<span class="' + scaleCls + '">\u00d7' + formatNum(opt.newScale) + '</span>'
+                + '</div>';
+        });
+    }
+    if (opts.boundOptions.length > 0) {
+        html += '<div class="agg-zero-section">substitute with bound</div>';
+        opts.boundOptions.forEach(function(opt, i) {
+            const cls = 'agg-zero-option' + (opt.feasible ? '' : ' agg-zero-infeasible');
+            const scaleCls = 'agg-zero-scale' + (opt.feasible ? '' : ' infeasible');
+            const tag = opt.alreadyApplied ? ' <span class="agg-zero-tag">re-apply</span>' : '';
+            html += '<div class="' + cls + '" data-opt-kind="bound" data-opt-idx="' + i + '">'
+                + '<span class="agg-zero-name">' + escapeHtml(opt.name) + tag + '</span>'
+                + '<span class="' + scaleCls + '">\u00d7' + formatNum(opt.newScale) + '</span>'
+                + '</div>';
+        });
+    }
+
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    _zeroMenuEl = menu;
+
+    const r = anchorEl.getBoundingClientRect();
+    let left = r.left;
+    const top = r.bottom + 4;
+    const menuW = menu.offsetWidth;
+    const vpW = document.documentElement.clientWidth;
+    if (left + menuW > vpW - 8) left = Math.max(8, vpW - menuW - 8);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    menu.querySelectorAll('.agg-zero-option').forEach(function(o) {
+        o.addEventListener('click', function() {
+            const optKind = o.dataset.optKind;
+            const optIdx = parseInt(o.dataset.optIdx, 10);
+            const opt = (optKind === 'scalar' ? opts.scalarOptions : opts.boundOptions)[optIdx];
+            if (!opt) return;
+            applyZeroOutOption(opt);
+            closeZeroOutMenu();
+        });
+    });
+
+    setTimeout(function() {
+        document.addEventListener('mousedown', _zeroMenuOutsideClick, true);
+        document.addEventListener('keydown', _zeroMenuKeydown, true);
+    }, 0);
+}
+
+function applyZeroOutOption(opt) {
+    if (opt.kind === 'scalar') {
+        const term = aggState.terms.get(opt.key);
+        if (!term || isNaN(opt.newScale)) return;
+        if (opt.newScale >= 0) {
+            term.scale = parseFloat(opt.newScale.toPrecision(10));
+        } else {
+            term.sign = -term.sign;
+            term.scale = parseFloat((-opt.newScale).toPrecision(10));
+        }
+    } else if (opt.kind === 'bound') {
+        let sign = opt.sign;
+        let scale = opt.newScale;
+        if (scale < 0) { sign = -sign; scale = -scale; }
+        aggState.terms.set(opt.key, {
+            sign: sign,
+            scale: parseFloat(scale.toPrecision(10)),
+            side: opt.side,
+            syntheticConstraint: opt.synth,
+        });
+    }
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+function showEmptyAggPanel() {
+    ensureAggPanel();
+    aggPanelEl.classList.remove('hidden');
+    aggPanelEl.classList.add('empty');
+    aggPanelEl.innerHTML = '<div class="agg-empty-state">Drop a constraint side here to start an aggregation</div>';
+}
+
+function renderAggPanel() {
+    if (aggState.mode === null) {
+        if (aggPanelEl) aggPanelEl.classList.add('hidden');
+        return;
+    }
+    ensureAggPanel();
+    aggPanelEl.classList.remove('hidden', 'empty');
+
+    const eligible = aggregateIsCgEligible();
+    if (!eligible && aggState.cgApplied) aggState.cgApplied = false;
+
+    const relSym = aggState.mode === '<=' ? '&le;' : '&ge;';
+
+    let rowsHtml = '';
+    for (const [key, term] of aggState.terms) {
+        const c = term.syntheticConstraint || modelData.constraints[key];
+        const signBadge = term.sign < 0 ? '<span class="agg-neg-badge" title="Auto-negated to match mode">×−1</span>' : '';
+        const nameClass = term.syntheticConstraint ? 'agg-con-name agg-bound-name' : 'agg-con-name';
+        rowsHtml += '<div class="agg-term" data-con-idx="' + key + '">'
+            + '<input type="number" class="agg-scalar-input" step="any" min="0" value="' + term.scale + '" data-con-idx="' + key + '" aria-label="scalar">'
+            + '<span class="agg-times">×</span>'
+            + signBadge
+            + '<span class="' + nameClass + '">' + escapeHtml(c.name) + '</span>'
+            + '<button class="agg-remove" data-con-idx="' + key + '" title="Remove">&times;</button>'
+            + '</div>';
+    }
+
+    const globalRow = '<div class="agg-global-row">'
+        + '<input type="number" class="agg-scalar-input agg-global-input" step="any" min="0" value="' + (aggState.globalScale || 1) + '" aria-label="overall scale">'
+        + '<span class="agg-times">\u00d7 whole aggregate</span>'
+        + '</div>';
+
+    const combined = combineDisplay();
+    const aggLhsHtml = formatAggregateTerms(combined.terms);
+    const aggLine = '<div class="agg-result">'
+        + '<span class="agg-result-label">&Sigma;:</span> '
+        + '<span class="constraint-expr">'
+        + aggLhsHtml + ' <span class="relation">' + relSym + '</span> '
+        + '<span class="bound-val">' + formatNum(combined.rhs) + '</span>'
+        + '</span></div>';
+
+    const cgLabel = aggState.cgApplied ? 'Undo CG' : 'Apply CG';
+    const cgTitle = eligible
+        ? (aggState.cgApplied ? 'Show raw aggregate' : 'Floor coefficients (Chvátal–Gomory rounding)')
+        : 'CG requires all variables in Σ to be non-negative integer/binary';
+    const cgBtn = '<button class="agg-cg-btn" ' + (eligible ? '' : 'disabled') + ' title="' + cgTitle + '">' + cgLabel + '</button>';
+
+    aggPanelEl.innerHTML = '<div class="agg-header">'
+        + '<span class="agg-title">Aggregation</span>'
+        + '<button class="agg-mode-toggle" title="Flip mode (negates all signs)">' + relSym + '</button>'
+        + '<span class="agg-spacer"></span>'
+        + cgBtn
+        + '<button class="agg-clear" title="Clear">Clear</button>'
+        + '</div>'
+        + '<div class="agg-terms">' + rowsHtml + '</div>'
+        + globalRow
+        + aggLine;
+
+    aggPanelEl.querySelector('.agg-mode-toggle').addEventListener('click', flipAggMode);
+    aggPanelEl.querySelector('.agg-clear').addEventListener('click', clearAggregation);
+    const cgBtnEl = aggPanelEl.querySelector('.agg-cg-btn');
+    if (cgBtnEl && !cgBtnEl.disabled) {
+        cgBtnEl.addEventListener('click', function() {
+            aggState.cgApplied = !aggState.cgApplied;
+            renderAggPanel();
+        });
+    }
+    const globalInp = aggPanelEl.querySelector('.agg-global-input');
+    if (globalInp) {
+        globalInp.addEventListener('change', function() {
+            const v = parseFloat(globalInp.value);
+            if (isNaN(v) || v < 0) globalInp.value = aggState.globalScale;
+        });
+        globalInp.addEventListener('input', function() {
+            const v = parseFloat(globalInp.value);
+            if (isNaN(v) || v < 0) return;
+            aggState.globalScale = v;
+            const recombined = combineDisplay();
+            const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
+            if (resultEl) {
+                resultEl.innerHTML = formatAggregateTerms(recombined.terms)
+                    + ' <span class="relation">' + relSym + '</span> '
+                    + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
+            }
+        });
+    }
+    aggPanelEl.querySelectorAll('.agg-remove').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const key = btn.dataset.conIdx;
+            aggState.terms.delete(key);
+            if (aggState.terms.size === 0) aggState.mode = null;
+            refreshAllAggMarkers();
+            renderAggPanel();
+        });
+    });
+    aggPanelEl.querySelectorAll('.agg-scalar-input').forEach(function(inp) {
+        inp.addEventListener('change', function() {
+            const key = inp.dataset.conIdx;
+            const term = aggState.terms.get(key);
+            if (!term) return;
+            const v = parseFloat(inp.value);
+            if (isNaN(v) || v < 0) inp.value = term.scale;
+        });
+        inp.addEventListener('input', function() {
+            const key = inp.dataset.conIdx;
+            const v = parseFloat(inp.value);
+            const term = aggState.terms.get(key);
+            if (!term || isNaN(v) || v < 0) return;
+            term.scale = v;
+            if (!term.syntheticConstraint) {
+                const row = constraintsList.querySelector('.constraint-row[data-con-idx="' + key + '"]');
+                if (row) {
+                    const handle = row.querySelector('.agg-grab.agg-grabbed[data-side="' + term.side + '"]');
+                    if (handle) handle.dataset.aggScalar = aggScalarLabel(term);
+                }
+            }
+            const recombined = combineDisplay();
+            const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
+            if (resultEl) {
+                resultEl.innerHTML = formatAggregateTerms(recombined.terms)
+                    + ' <span class="relation">' + relSym + '</span> '
+                    + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
+            }
+        });
+    });
+}
+
+// Unified pointer-based grab/drag (more reliable than HTML5 DnD on inline spans)
+let _aggDrag = null;  // { conIdx, side, startX, startY, dragging, preview }
+const AGG_DRAG_THRESHOLD_SQ = 16;  // 4px
+
+constraintsList.addEventListener('pointerdown', function(e) {
+    if (e.button !== 0) return;
+    const handle = e.target.closest('.agg-grab');
+    if (!handle || !constraintsList.contains(handle)) return;
+    const conIdx = parseInt(handle.dataset.conIdx, 10);
+    const side = handle.dataset.side;
+    if (isNaN(conIdx) || !side) return;
+    _aggDrag = {
+        conIdx: conIdx,
+        side: side,
+        startX: e.clientX,
+        startY: e.clientY,
+        dragging: false,
+        preview: null,
+        labelText: handle.textContent.trim(),
+    };
+});
+
+document.addEventListener('pointermove', function(e) {
+    if (!_aggDrag) return;
+    if (!_aggDrag.dragging) {
+        const dx = e.clientX - _aggDrag.startX;
+        const dy = e.clientY - _aggDrag.startY;
+        if (dx * dx + dy * dy < AGG_DRAG_THRESHOLD_SQ) return;
+        // Threshold crossed → start drag
+        _aggDrag.dragging = true;
+        document.body.classList.add('agg-dragging');
+        if (aggState.mode === null) showEmptyAggPanel();
+        _aggDrag.preview = document.createElement('div');
+        _aggDrag.preview.className = 'agg-drag-preview';
+        _aggDrag.preview.textContent = _aggDrag.labelText;
+        document.body.appendChild(_aggDrag.preview);
+    }
+    _aggDrag.preview.style.left = e.clientX + 'px';
+    _aggDrag.preview.style.top = e.clientY + 'px';
+    const overPanel = aggPanelEl && aggPanelEl.contains(document.elementFromPoint(e.clientX, e.clientY));
+    if (aggPanelEl) aggPanelEl.classList.toggle('drag-over', !!overPanel);
+});
+
+function _aggDragCleanup() {
+    document.body.classList.remove('agg-dragging');
+    if (aggPanelEl) aggPanelEl.classList.remove('drag-over');
+    if (_aggDrag && _aggDrag.preview) _aggDrag.preview.remove();
+}
+
+document.addEventListener('pointerup', function(e) {
+    if (!_aggDrag) return;
+    const ds = _aggDrag;
+    if (ds.dragging) {
+        const overPanel = aggPanelEl && aggPanelEl.contains(document.elementFromPoint(e.clientX, e.clientY));
+        _aggDragCleanup();
+        if (overPanel) {
+            onGrab(ds.conIdx, ds.side);
+        } else if (aggState.mode === null && aggPanelEl) {
+            // Aborted drag, panel was just empty placeholder → hide it
+            aggPanelEl.classList.add('hidden');
+            aggPanelEl.classList.remove('empty');
+        }
+    } else {
+        // No movement → treat as click
+        onGrab(ds.conIdx, ds.side);
+    }
+    _aggDrag = null;
+});
+
+document.addEventListener('pointercancel', function() {
+    if (!_aggDrag) return;
+    _aggDragCleanup();
+    if (aggState.mode === null && aggPanelEl) {
+        aggPanelEl.classList.add('hidden');
+        aggPanelEl.classList.remove('empty');
+    }
+    _aggDrag = null;
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 function formatNumber(n) {
     return n.toLocaleString();
