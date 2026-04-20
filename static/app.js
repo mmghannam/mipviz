@@ -739,6 +739,8 @@ async function loadRecentUpload(entry) {
         currentInstanceName = null;
         originalModelData = null;
         isPresolved = false;
+        resetPlaygroundState();
+        resetConstraintFilters();
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
         downloadBtn.href = URL.createObjectURL(file);
@@ -981,6 +983,10 @@ async function doPresolve() {
         originalModelData = modelData;
         modelData = result;
         isPresolved = true;
+        // Variable indices just shifted under us — playground state and
+        // constraint filters would reference stale indices/names otherwise.
+        resetPlaygroundState();
+        resetConstraintFilters();
         presolveBtn.textContent = 'Original';
         presolveBtn.classList.add('active');
         showResults();
@@ -1003,6 +1009,8 @@ presolveBtn.addEventListener('click', () => {
         modelData = originalModelData;
         originalModelData = null;
         isPresolved = false;
+        resetPlaygroundState();
+        resetConstraintFilters();
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
         symmetryPanel.classList.add('hidden');
@@ -1301,6 +1309,8 @@ async function loadInstanceFromUrl(name) {
         modelData = await API.parseModel(file);
         originalModelData = null;
         isPresolved = false;
+        resetPlaygroundState();
+        resetConstraintFilters();
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
         downloadBtn.href = url;
@@ -1400,6 +1410,8 @@ async function uploadFile(file) {
         currentInstanceName = null;
         originalModelData = null;
         isPresolved = false;
+        resetPlaygroundState();
+        resetConstraintFilters();
         presolveBtn.textContent = 'Presolve';
         presolveBtn.classList.remove('active');
         downloadBtn.href = URL.createObjectURL(file);
@@ -2733,6 +2745,32 @@ function clearAggregation() {
     aggState.complemented.clear();
     refreshAllAggMarkers();
     renderAggPanel();
+}
+
+// Called whenever the underlying model changes (file upload, presolve toggle,
+// random instance). Clears aggregation state AND the saved inequalities list,
+// since saved rows reference variable indices that may no longer be valid.
+function resetPlaygroundState() {
+    if (typeof closeZeroOutMenu === 'function') closeZeroOutMenu();
+    clearAggregation();
+    if (savedInequalities) savedInequalities.clear();
+    savedIdCounter = 0;
+    if (typeof renderSavedList === 'function') renderSavedList();
+}
+
+// Clear all constraint/variable filters and the filter input elements.
+// Does not re-render — callers typically re-render the whole model anyway.
+function resetConstraintFilters() {
+    activeTypeFilter.clear();
+    activeVarFilter.clear();
+    activeConNameFilter = '';
+    activeVarNameFilter = '';
+    activeComponentFilter = null;
+    activeConstraintVarFilter = null;
+    const cnf = document.getElementById('con-name-filter');
+    if (cnf) cnf.value = '';
+    const vnf = document.getElementById('var-name-filter');
+    if (vnf) vnf.value = '';
 }
 
 // Pick the canonical-direction bound side for a row: `upper` for ≤ / equality,
