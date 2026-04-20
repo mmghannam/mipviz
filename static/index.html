@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css"/>
-    <link rel="stylesheet" href="./style.css?v=65">
+    <link rel="stylesheet" href="./style.css?v=66">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -192,6 +192,7 @@
                     <button id="solve-visible-btn" class="btn-plot-all-lr">Solve visible LP</button>
                     <button id="agg-visible-btn" class="btn-plot-all-lr" onclick="if(typeof addAllVisibleToAggregation==='function')addAllVisibleToAggregation()">Aggregate visible</button>
                 </div>
+                <div id="saved-list" class="saved-list hidden"></div>
                 <div id="constraints-list" class="constraints-list"></div>
                 <button id="show-more-btn" class="btn-show-more hidden">Show more</button>
             </details>
@@ -229,10 +230,10 @@
     <script src="./mipviz_wasm.js" onload="window.__wasmAvailable=true" onerror=""></script>
     <script src="./theme.js?v=1"></script>
     <script src="./config.js?v=1"></script>
-    <script src="./api.js?v=1"></script>
+    <script src="./api.js?v=3"></script>
     <script src="./marked.min.js"></script>
     <script src="./nav-search.js?v=2"></script>
-    <script src="./app.js?v=49"></script>
+    <script src="./app.js?v=51"></script>
     <script src="./dirpicker.js?v=1"></script>
     <script src="./lagrangian.js?v=7"></script>
     <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>

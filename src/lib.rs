@@ -588,8 +588,194 @@ pub fn extract_cliques(path: &str) -> Result<CliqueResponse, String> {
     })
 }
 
-pub fn solve_root_lp(path: &str, presolved: bool) -> Result<model::LpSolutionResponse, String> {
+/// Presolved LP data extracted in a specific variable ordering. Used to build
+/// a fresh continuous LP via HiGHS regardless of which solver did the presolve.
+struct PresolvedLpData {
+    num_cols: usize,
+    col_cost: Vec<f64>,
+    col_lower: Vec<f64>,
+    col_upper: Vec<f64>,
+    row_lower: Vec<f64>,
+    row_upper: Vec<f64>,
+    row_data: Vec<Vec<(usize, f64)>>,
+    sense: lio_highs::Sense,
+    offset: f64,
+}
+
+/// Run SCIP presolve and pull out an LP-shaped view of the result, with
+/// variables in the same order SCIP exposes via `SCIPgetVars` (which is the
+/// order `extract_presolved_model_data_scip` uses for `modelData.variables`).
+fn extract_scip_presolved_lp_data(path: &str) -> Result<PresolvedLpData, String> {
+    unsafe {
+        let mut scip: *mut scip_sys::SCIP = std::ptr::null_mut();
+        scip_sys::SCIPcreate(&mut scip);
+        scip_sys::SCIPincludeDefaultPlugins(scip);
+        scip_sys::SCIPsetIntParam(
+            scip,
+            CString::new("display/verblevel").unwrap().as_ptr(),
+            0,
+        );
+
+        let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
+        let ret = scip_sys::SCIPreadProb(scip, c_path.as_ptr(), std::ptr::null());
+        if ret != scip_sys::SCIP_Retcode_SCIP_OKAY {
+            scip_sys::SCIPfree(&mut scip);
+            return Err(format!("SCIP failed to read problem (code {})", ret));
+        }
+        let ret = scip_sys::SCIPpresolve(scip);
+        if ret != scip_sys::SCIP_Retcode_SCIP_OKAY {
+            scip_sys::SCIPfree(&mut scip);
+            return Err(format!("SCIP presolve failed (code {})", ret));
+        }
+
+        let num_cols = scip_sys::SCIPgetNVars(scip) as usize;
+        let vars_ptr = scip_sys::SCIPgetVars(scip);
+        let scip_vars = std::slice::from_raw_parts(vars_ptr, num_cols);
+
+        let mut var_ptr_to_idx: std::collections::HashMap<*mut scip_sys::SCIP_VAR, usize> =
+            std::collections::HashMap::with_capacity(num_cols);
+        let mut col_cost = Vec::with_capacity(num_cols);
+        let mut col_lower = Vec::with_capacity(num_cols);
+        let mut col_upper = Vec::with_capacity(num_cols);
+        for (i, &var) in scip_vars.iter().enumerate() {
+            var_ptr_to_idx.insert(var, i);
+            col_cost.push(scip_sys::SCIPvarGetObj(var));
+            col_lower.push(scip_sys::SCIPvarGetLbGlobal(var));
+            col_upper.push(scip_sys::SCIPvarGetUbGlobal(var));
+        }
+
+        let num_conss = scip_sys::SCIPgetNConss(scip) as usize;
+        let conss_ptr = scip_sys::SCIPgetConss(scip);
+        let scip_conss = std::slice::from_raw_parts(conss_ptr, num_conss);
+
+        let mut row_lower: Vec<f64> = Vec::new();
+        let mut row_upper: Vec<f64> = Vec::new();
+        let mut row_data: Vec<Vec<(usize, f64)>> = Vec::new();
+        const HIGHS_INF: f64 = 1e30;
+
+        for &cons in scip_conss {
+            let mut nvars_int: c_int = 0;
+            let mut success: u32 = 0;
+            scip_sys::SCIPgetConsNVars(scip, cons, &mut nvars_int, &mut success);
+            if success == 0 || nvars_int <= 0 {
+                continue;
+            }
+            let nvars = nvars_int as usize;
+
+            let mut cvars_buf: Vec<*mut scip_sys::SCIP_VAR> = vec![std::ptr::null_mut(); nvars];
+            success = 0;
+            scip_sys::SCIPgetConsVars(scip, cons, cvars_buf.as_mut_ptr(), nvars_int, &mut success);
+            if success == 0 {
+                continue;
+            }
+            let mut cvals_buf: Vec<f64> = vec![0.0; nvars];
+            success = 0;
+            scip_sys::SCIPgetConsVals(scip, cons, cvals_buf.as_mut_ptr(), nvars_int, &mut success);
+            if success == 0 {
+                continue;
+            }
+
+            success = 0;
+            let lhs = scip_sys::SCIPconsGetLhs(scip, cons, &mut success);
+            let lhs = if success != 0 { lhs } else { -HIGHS_INF };
+            success = 0;
+            let rhs = scip_sys::SCIPconsGetRhs(scip, cons, &mut success);
+            let rhs = if success != 0 { rhs } else { HIGHS_INF };
+
+            let mut terms = Vec::with_capacity(nvars);
+            for j in 0..nvars {
+                if let Some(&var_idx) = var_ptr_to_idx.get(&cvars_buf[j]) {
+                    terms.push((var_idx, cvals_buf[j]));
+                }
+            }
+            if terms.is_empty() {
+                continue;
+            }
+
+            row_lower.push(lhs);
+            row_upper.push(rhs);
+            row_data.push(terms);
+        }
+
+        let sense = match scip_sys::SCIPgetObjsense(scip) {
+            scip_sys::SCIP_Objsense_SCIP_OBJSENSE_MINIMIZE => lio_highs::Sense::Minimise,
+            _ => lio_highs::Sense::Maximise,
+        };
+        let offset = scip_sys::SCIPgetTransObjoffset(scip);
+
+        scip_sys::SCIPfree(&mut scip);
+
+        Ok(PresolvedLpData {
+            num_cols,
+            col_cost,
+            col_lower,
+            col_upper,
+            row_lower,
+            row_upper,
+            row_data,
+            sense,
+            offset,
+        })
+    }
+}
+
+/// Build a continuous LP from presolved data + optional extra rows and solve via HiGHS.
+fn solve_continuous_lp_from_data(
+    data: &PresolvedLpData,
+    extra_rows: &[ExtraRow],
+) -> Result<model::LpSolutionResponse, String> {
     use lio_highs::{ColProblem, LikeModel, Model};
+    const HIGHS_INF: f64 = 1e30;
+
+    let mut lp = Model::new::<ColProblem>(ColProblem::default());
+    lp.make_quiet();
+    lp.set_sense(data.sense);
+
+    for i in 0..data.num_cols {
+        lp.add_col(
+            data.col_cost[i],
+            data.col_lower[i]..=data.col_upper[i],
+            std::iter::empty::<(usize, f64)>(),
+        );
+    }
+    for i in 0..data.row_data.len() {
+        lp.add_row(
+            data.row_lower[i]..=data.row_upper[i],
+            data.row_data[i].iter().copied(),
+        );
+    }
+    for row in extra_rows.iter() {
+        let lb = row.lower.unwrap_or(-HIGHS_INF);
+        let ub = row.upper.unwrap_or(HIGHS_INF);
+        lp.add_row(lb..=ub, row.coeffs.iter().copied());
+    }
+
+    let solved = lp
+        .try_solve()
+        .map_err(|(status, _)| format!("LP solve failed: {:?}", status))?;
+    let status = format!("{:?}", solved.status());
+    let obj = solved.obj_val() + data.offset;
+    let solution = solved.get_solution();
+    Ok(model::LpSolutionResponse {
+        status,
+        objective_value: obj,
+        col_values: solution.columns().to_vec(),
+        row_values: solution.rows().to_vec(),
+        dual_values: solution.dual_rows().to_vec(),
+    })
+}
+
+pub fn solve_root_lp(
+    path: &str,
+    presolved: bool,
+    solver: &str,
+) -> Result<model::LpSolutionResponse, String> {
+    use lio_highs::{ColProblem, LikeModel, Model};
+
+    if presolved && solver == "scip" {
+        let data = extract_scip_presolved_lp_data(path)?;
+        return solve_continuous_lp_from_data(&data, &[]);
+    }
 
     let mut model = Model::new::<ColProblem>(ColProblem::default());
     model.make_quiet();
@@ -659,6 +845,113 @@ pub fn solve_root_lp(path: &str, presolved: bool) -> Result<model::LpSolutionRes
             dual_values: solution.dual_rows().to_vec(),
         })
     }
+}
+
+/// A row to inject into the LP, expressed in the original variable indices.
+/// `lower` / `upper` are optional (None → unbounded on that side).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ExtraRow {
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
+    /// (column index, coefficient) pairs — only non-zero entries.
+    pub coeffs: Vec<(usize, f64)>,
+}
+
+/// Solve the continuous relaxation of the model plus user-provided extra rows
+/// (e.g. derived cuts from the aggregation playground). `presolved` + `solver`
+/// select the variable-index space the extra rows live in:
+///   - `presolved=false`: original file (HiGHS reads it raw).
+///   - `presolved=true, solver="highs"`: HiGHS presolve.
+///   - `presolved=true, solver="scip"`: SCIP presolve, ordering matches
+///     `extract_presolved_model_data_scip` (i.e. `modelData.variables`).
+pub fn solve_lp_with_extra_rows(
+    path: &str,
+    presolved: bool,
+    solver: &str,
+    extra_rows: &[ExtraRow],
+) -> Result<model::LpSolutionResponse, String> {
+    use lio_highs::{ColProblem, LikeModel, Model};
+    const HIGHS_INF: f64 = 1e30;
+
+    if presolved && solver == "scip" {
+        let data = extract_scip_presolved_lp_data(path)?;
+        return solve_continuous_lp_from_data(&data, extra_rows);
+    }
+
+    if !presolved {
+        let mut model = Model::new::<ColProblem>(ColProblem::default());
+        model.make_quiet();
+        model.read(path);
+
+        let num_cols = model.num_cols();
+        for i in 0..num_cols {
+            let _ = model.change_col_integrality(i, false);
+        }
+
+        for row in extra_rows.iter() {
+            let lb = row.lower.unwrap_or(-HIGHS_INF);
+            let ub = row.upper.unwrap_or(HIGHS_INF);
+            model.add_row(lb..=ub, row.coeffs.iter().copied());
+        }
+
+        let solved = model
+            .try_solve()
+            .map_err(|(status, _)| format!("LP solve failed: {:?}", status))?;
+
+        let status = format!("{:?}", solved.status());
+        let obj = solved.obj_val();
+        let solution = solved.get_solution();
+        return Ok(model::LpSolutionResponse {
+            status,
+            objective_value: obj,
+            col_values: solution.columns().to_vec(),
+            row_values: solution.rows().to_vec(),
+            dual_values: solution.dual_rows().to_vec(),
+        });
+    }
+
+    // HiGHS-presolved path: extract presolved row-LP data and solve fresh.
+    let mut base = Model::new::<ColProblem>(ColProblem::default());
+    base.make_quiet();
+    base.read(path);
+    base.presolve();
+
+    let (
+        num_cols, num_rows, _num_nz, sense, offset,
+        col_cost, col_lower, col_upper,
+        row_lower, row_upper, row_data,
+        _integrality,
+    ) = base.get_presolved_row_lp();
+
+    let mut lp = Model::new::<ColProblem>(ColProblem::default());
+    lp.make_quiet();
+    lp.set_sense(sense);
+
+    for i in 0..num_cols {
+        lp.add_col(col_cost[i], col_lower[i]..=col_upper[i], std::iter::empty::<(usize, f64)>());
+    }
+    for i in 0..num_rows {
+        lp.add_row(row_lower[i]..=row_upper[i], row_data[i].iter().copied());
+    }
+    for row in extra_rows.iter() {
+        let lb = row.lower.unwrap_or(-HIGHS_INF);
+        let ub = row.upper.unwrap_or(HIGHS_INF);
+        lp.add_row(lb..=ub, row.coeffs.iter().copied());
+    }
+
+    let solved = lp
+        .try_solve()
+        .map_err(|(status, _)| format!("Presolved LP solve failed: {:?}", status))?;
+    let status = format!("{:?}", solved.status());
+    let obj = solved.obj_val() + offset;
+    let solution = solved.get_solution();
+    Ok(model::LpSolutionResponse {
+        status,
+        objective_value: obj,
+        col_values: solution.columns().to_vec(),
+        row_values: solution.rows().to_vec(),
+        dual_values: solution.dual_rows().to_vec(),
+    })
 }
 
 /// Solve the relaxation keeping only the given constraints (+ variable bounds).

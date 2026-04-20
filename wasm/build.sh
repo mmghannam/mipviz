@@ -31,7 +31,7 @@ emcc \
     -sMODULARIZE=1 \
     -sEXPORT_NAME=MipVizWasm \
     -sALLOW_MEMORY_GROWTH=1 \
-    -sEXPORTED_FUNCTIONS='["_mipviz_alloc","_mipviz_free","_mipviz_parse_model","_mipviz_parse_model_scip","_mipviz_presolve_model","_mipviz_presolve_model_scip","_mipviz_get_reductions","_mipviz_get_cliques","_mipviz_get_cliques_highs","_mipviz_get_cliques_scip","_mipviz_get_symmetry_scip","_mipviz_solve_root_lp","_mipviz_solve_mip","_mipviz_solve_mip_scip","_mipviz_solve_constraint_subset","_mipviz_result_ptr","_mipviz_result_len","_mipviz_free_result","_malloc","_free"]' \
+    -sEXPORTED_FUNCTIONS='["_mipviz_alloc","_mipviz_free","_mipviz_parse_model","_mipviz_parse_model_scip","_mipviz_presolve_model","_mipviz_presolve_model_scip","_mipviz_get_reductions","_mipviz_get_cliques","_mipviz_get_cliques_highs","_mipviz_get_cliques_scip","_mipviz_get_symmetry_scip","_mipviz_solve_root_lp","_mipviz_solve_lp_with_extra_rows","_mipviz_solve_mip","_mipviz_solve_mip_scip","_mipviz_solve_constraint_subset","_mipviz_result_ptr","_mipviz_result_len","_mipviz_free_result","_malloc","_free"]' \
     -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAPU8"]' \
     -sFORCE_FILESYSTEM=1 \
     --js-library "$SCRIPT_DIR/src/mipviz_log.js" \

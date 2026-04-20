@@ -111,7 +111,7 @@ const API = (() => {
         return result;
     }
 
-    async function solveRootLp(file, presolved) {
+    async function solveRootLp(file, presolved, solver) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
         if (file.name.endsWith('.gz')) {
@@ -121,11 +121,47 @@ const API = (() => {
         const path = writeToVFS(buffer, 'input.mps');
 
         const pathStr = writeString(path);
-        const status = Module._mipviz_solve_root_lp(pathStr.ptr, pathStr.len, presolved ? 1 : 0);
+        const solverStr = writeString(solver || 'highs');
+        const status = Module._mipviz_solve_root_lp(
+            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len
+        );
         freeStr(pathStr);
+        freeStr(solverStr);
 
         const result = readResult();
         if (status !== 0) throw new Error(result.error || 'LP solve failed');
+        return result;
+    }
+
+    /**
+     * Solve the LP relaxation plus user-provided extra rows (derived cuts).
+     * `presolved` + `solver` select which variable-index space the rows use:
+     *   - false: original file (HiGHS reads it raw).
+     *   - true,"highs": HiGHS presolve.
+     *   - true,"scip": SCIP presolve (matches modelData when SCIP solver is selected).
+     * extraRows: [{lower: number|null, upper: number|null, coeffs: [[col, coef], …]}, …]
+     */
+    async function solveLpWithExtraRows(file, presolved, solver, extraRows) {
+        await ensureReady();
+        let buffer = await file.arrayBuffer();
+        if (file.name.endsWith('.gz')) {
+            const text = await decompressGzip(buffer);
+            buffer = new TextEncoder().encode(text).buffer;
+        }
+        const path = writeToVFS(buffer, 'input.mps');
+
+        const pathStr = writeString(path);
+        const solverStr = writeString(solver || 'highs');
+        const rowsJson = writeString(JSON.stringify(extraRows));
+        const status = Module._mipviz_solve_lp_with_extra_rows(
+            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len, rowsJson.ptr, rowsJson.len
+        );
+        freeStr(pathStr);
+        freeStr(solverStr);
+        freeStr(rowsJson);
+
+        const result = readResult();
+        if (status !== 0) throw new Error(result.error || 'LP solve with extra rows failed');
         return result;
     }
 
@@ -219,6 +255,7 @@ const API = (() => {
         getReductions,
         getCliques,
         solveRootLp,
+        solveLpWithExtraRows,
         solveConstraintSubset,
         getCliquesImplications,
         getSymmetry,

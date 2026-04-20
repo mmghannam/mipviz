@@ -2038,6 +2038,106 @@ body.agg-dragging * {
     cursor: not-allowed;
     background: transparent;
 }
+.aggregation-panel .agg-save-btn {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+}
+.aggregation-panel .agg-save-btn:hover {
+    background: var(--accent);
+    color: #fff;
+}
+
+/* Saved-inequalities list above the constraints list */
+.saved-list {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+}
+.saved-list.hidden {
+    display: none;
+}
+.saved-list-header {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.saved-resolve-btn {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    cursor: pointer;
+}
+.saved-resolve-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: #fff;
+}
+.saved-resolve-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.saved-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--border-subtle);
+}
+.saved-row:last-child {
+    border-bottom: none;
+}
+.saved-row .saved-name {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    min-width: 80px;
+    flex-shrink: 0;
+}
+.saved-row .saved-delete {
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+.saved-row .saved-delete:hover {
+    color: var(--orange);
+}
+.saved-row .constraint-expr {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    word-break: break-word;
+    flex: 1;
+}
+.aggregation-panel .agg-saved-name {
+    color: var(--accent);
+    font-style: normal;
+}
 
 .aggregation-panel .agg-result {
     padding-top: 8px;
@@ -2058,6 +2158,38 @@ body.agg-dragging * {
 .aggregation-panel .agg-result .var-continuous { color: var(--orange); font-weight: 500; }
 .aggregation-panel .agg-result .var-integer { color: var(--green); font-weight: 500; }
 .aggregation-panel .agg-result .var-binary { color: var(--accent); font-weight: 500; }
+
+.aggregation-panel .agg-violation {
+    padding-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.aggregation-panel .agg-violation-label {
+    color: var(--text-muted);
+}
+.aggregation-panel .agg-violation-val {
+    color: var(--text);
+}
+.aggregation-panel .agg-slack {
+    color: var(--green);
+    margin-left: auto;
+}
+.aggregation-panel .agg-violated {
+    color: var(--orange);
+    font-weight: 500;
+    margin-left: auto;
+}
+.aggregation-panel .agg-efficacy {
+    color: var(--orange);
+    opacity: 0.75;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+}
 
 .agg-zero {
     cursor: pointer;

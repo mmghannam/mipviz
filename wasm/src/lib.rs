@@ -549,16 +549,57 @@ pub extern "C" fn mipviz_solve_mip_scip(
 
 /// Solve the LP relaxation. File must be on Emscripten FS.
 /// presolved: 0 = original, 1 = presolve first then solve presolved LP
+/// solver_ptr/solver_len: "highs" or "scip" — which presolver's variable
+/// ordering to match (only used when presolved=1).
 /// Returns 0 on success, 1 on error.
 #[unsafe(no_mangle)]
 pub extern "C" fn mipviz_solve_root_lp(
     path_ptr: *const u8,
     path_len: usize,
     presolved: i32,
+    solver_ptr: *const u8,
+    solver_len: usize,
 ) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
+    let solver = unsafe { read_str(solver_ptr, solver_len) };
 
-    match mipviz::solve_root_lp(path, presolved != 0) {
+    match mipviz::solve_root_lp(path, presolved != 0, solver) {
+        Ok(resp) => {
+            set_result(serde_json::to_string(&resp).unwrap());
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            1
+        }
+    }
+}
+
+/// Solve the LP relaxation after injecting extra rows (e.g. derived cuts).
+/// `rows_json` is a JSON array of `{lower, upper, coeffs: [[col, coef], …]}`.
+/// `presolved` + `solver` select the variable-index space.
+/// Returns 0 on success, 1 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn mipviz_solve_lp_with_extra_rows(
+    path_ptr: *const u8,
+    path_len: usize,
+    presolved: i32,
+    solver_ptr: *const u8,
+    solver_len: usize,
+    rows_json_ptr: *const u8,
+    rows_json_len: usize,
+) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    let solver = unsafe { read_str(solver_ptr, solver_len) };
+    let rows_json = unsafe { read_str(rows_json_ptr, rows_json_len) };
+    let rows: Vec<mipviz::ExtraRow> = match serde_json::from_str(rows_json) {
+        Ok(r) => r,
+        Err(e) => {
+            set_error(format!("Failed to parse extra rows JSON: {}", e));
+            return 1;
+        }
+    };
+    match mipviz::solve_lp_with_extra_rows(path, presolved != 0, solver, &rows) {
         Ok(resp) => {
             set_result(serde_json::to_string(&resp).unwrap());
             0

@@ -937,15 +937,17 @@ solveLpBtn.addEventListener('click', async () => {
         solveLpBtn.textContent = 'Solve LP';
         solveLpBtn.classList.remove('active');
         renderVariablesInit();
+        if (typeof renderAggPanel === 'function') renderAggPanel();
         return;
     }
     solveLpBtn.textContent = 'Solving…';
     solveLpBtn.disabled = true;
     try {
-        lpSolution = await API.solveRootLp(currentUploadFile, isPresolved);
+        lpSolution = await API.solveRootLp(currentUploadFile, isPresolved, currentSolver);
         solveLpBtn.textContent = 'Hide LP (obj: ' + formatNum(lpSolution.objective_value) + ')';
         solveLpBtn.classList.add('active');
         renderVariablesInit();
+        if (typeof renderAggPanel === 'function') renderAggPanel();
     } catch (err) {
         showToast('LP solve error: ' + err.message);
         solveLpBtn.textContent = 'Solve LP';
@@ -2540,7 +2542,7 @@ function createConstraintRow(constraint, idx) {
 function formatConstraint(c, idx) {
     const terms = c.terms;
     const lhsHtml = formatTerms(terms);
-    const canGrab = !mathMode && typeof idx === 'number';
+    const canGrab = !mathMode && idx !== undefined && idx !== null;
 
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
@@ -2626,8 +2628,27 @@ const aggState = {
     mode: null,           // '<=' | '>=' | null (null = no aggregation)
     terms: new Map(),     // string key -> { sign: +1|-1, scale: ≥0, side, syntheticConstraint? }
     globalScale: 1,       // multiplier applied to the whole aggregate
-    cgApplied: false      // true → display floor/ceil of coeffs and rhs
+    cgApplied: false,     // true → display floor/ceil of coeffs and rhs
+    complemented: new Set()  // binary varIndex set: substitute x → (1 − x)
 };
+
+// Saved "derived" inequalities — snapshots of past aggregations that can be
+// grabbed and re-aggregated into new rows. Keyed by a stable id, referenced
+// in aggState.terms by the key `'s:' + id`.
+const savedInequalities = new Map();  // id -> { id, name, terms, lower, upper }
+let savedIdCounter = 0;
+const savedListEl = document.getElementById('saved-list');
+
+// Look up a constraint-like object by map key: 's:<id>' for saved inequalities,
+// numeric string for real model constraints.
+function resolveConstraint(key) {
+    const s = String(key);
+    if (s.startsWith('s:')) {
+        const id = parseInt(s.slice(2), 10);
+        return savedInequalities.get(id);
+    }
+    return modelData ? modelData.constraints[s] : undefined;
+}
 let aggPanelEl = null;
 
 function canonicalDirection(c, side) {
@@ -2675,11 +2696,11 @@ function signForContribution(c, side, aggMode) {
 }
 
 function onGrab(conIdx, side) {
-    const c = modelData.constraints[conIdx];
+    const key = String(conIdx);
+    const c = resolveConstraint(key);
     if (!c) return;
     const implied = modeFor(c, side);
     if (!implied) return;  // ranged LHS or free row
-    const key = String(conIdx);
 
     if (aggState.mode === null) {
         aggState.mode = implied;
@@ -2709,6 +2730,7 @@ function clearAggregation() {
     aggState.terms.clear();
     aggState.globalScale = 1;
     aggState.cgApplied = false;
+    aggState.complemented.clear();
     refreshAllAggMarkers();
     renderAggPanel();
 }
@@ -2764,7 +2786,7 @@ function flipAggMode() {
     if (aggState.mode === null) return;
     aggState.mode = aggState.mode === '<=' ? '>=' : '<=';
     for (const [key, term] of aggState.terms) {
-        const c = term.syntheticConstraint || modelData.constraints[key];
+        const c = term.syntheticConstraint || resolveConstraint(key);
         term.sign = signForContribution(c, term.side, aggState.mode) || term.sign;
     }
     refreshAllAggMarkers();
@@ -2776,7 +2798,7 @@ function combineAggregate() {
     let rhs = 0;
     const g = (typeof aggState.globalScale === 'number' && aggState.globalScale >= 0) ? aggState.globalScale : 1;
     for (const [key, term] of aggState.terms) {
-        const c = term.syntheticConstraint || modelData.constraints[key];
+        const c = term.syntheticConstraint || resolveConstraint(key);
         const mult = g * term.sign * term.scale;
         for (const t of c.terms) {
             const prev = coefByVar.get(t.var_index);
@@ -2787,6 +2809,21 @@ function combineAggregate() {
             }
         }
         rhs += mult * boundValueFor(c, term.side);
+    }
+    // Apply complement substitutions x → (ub − x): coef flips, rhs shifts by
+    // `−coef·ub`. Binary is the ub=1 special case; any variable with finite
+    // upper bound can be complemented the same way.
+    for (const varIdx of aggState.complemented) {
+        const info = coefByVar.get(varIdx);
+        if (!info) continue;
+        const v = modelData.variables[varIdx];
+        if (!v) continue;
+        const ub = v.upper;
+        if (ub === null || ub > INF_THRESHOLD) continue;  // no finite upper → can't complement
+        rhs -= info.coeff * ub;
+        info.coeff = -info.coeff;
+        info.complemented = true;
+        info.complementUb = ub;
     }
     const terms = [];
     for (const info of coefByVar.values()) {
@@ -2806,9 +2843,65 @@ function combineDisplay() {
     const rounded = [];
     for (const t of r.terms) {
         const c = round(t.coeff);
-        if (Math.abs(c) > 1e-10) rounded.push({ var_index: t.var_index, coeff: c, var_type: t.var_type, var_name: t.var_name });
+        if (Math.abs(c) > 1e-10) rounded.push({
+            var_index: t.var_index,
+            coeff: c,
+            var_type: t.var_type,
+            var_name: t.var_name,
+            complemented: t.complemented,
+            complementUb: t.complementUb,
+        });
     }
     return { terms: rounded, rhs: round(r.rhs) };
+}
+
+// Evaluate the displayed aggregate at the current LP solution. Returns null
+// when there's no LP solution, no aggregate, or any variable value is missing.
+function evalAggregateAtLp(combined) {
+    if (!lpSolution || !lpSolution.col_values || aggState.mode === null) return null;
+    if (!combined || combined.terms.length === 0) return null;
+    let lhsVal = 0;
+    let normSq = 0;
+    for (const t of combined.terms) {
+        const x = lpSolution.col_values[t.var_index];
+        if (x === undefined) return null;
+        // Displayed form may use complemented variable (ub − x).
+        const v = t.complemented
+            ? ((t.complementUb !== undefined ? t.complementUb : 0) - x)
+            : x;
+        lhsVal += t.coeff * v;
+        normSq += t.coeff * t.coeff;
+    }
+    const rhs = combined.rhs;
+    const slack = aggState.mode === '<=' ? (rhs - lhsVal) : (lhsVal - rhs);
+    const violated = slack < -1e-9;
+    const norm = Math.sqrt(normSq);
+    // Efficacy = |violation| / ‖a‖₂ — Euclidean distance from the LP point to
+    // the hyperplane. Only meaningful for violated cuts.
+    const efficacy = (violated && norm > 1e-12) ? (-slack / norm) : null;
+    return { lhsVal: lhsVal, rhs: rhs, slack: slack, violated: violated, efficacy: efficacy };
+}
+
+function formatViolationLine(evalRes) {
+    if (!evalRes) return '';
+    const mag = Math.abs(evalRes.slack);
+    let status;
+    if (evalRes.violated) {
+        const effTxt = evalRes.efficacy !== null
+            ? ' <span class="agg-efficacy" title="Efficacy = violation / ‖a‖₂">eff ' + formatNum(evalRes.efficacy) + '</span>'
+            : '';
+        status = '<span class="agg-violated">violated by ' + formatNum(mag) + '</span>' + effTxt;
+    } else {
+        status = '<span class="agg-slack">slack ' + formatNum(mag) + '</span>';
+    }
+    const rel = aggState.mode === '<=' ? '&le;' : '&ge;';
+    return '<div class="agg-violation">'
+        + '<span class="agg-violation-label">@ LP:</span> '
+        + '<span class="agg-violation-val">' + formatNum(evalRes.lhsVal) + '</span> '
+        + '<span class="relation">' + rel + '</span> '
+        + '<span class="agg-violation-val">' + formatNum(evalRes.rhs) + '</span> '
+        + status
+        + '</div>';
 }
 
 function aggregateIsCgEligible() {
@@ -2817,6 +2910,8 @@ function aggregateIsCgEligible() {
     if (combined.terms.length === 0) return false;
     for (const t of combined.terms) {
         if (t.var_type !== 'integer' && t.var_type !== 'binary') return false;
+        // Complemented variables use the effective lower bound 0 (since ub−x ∈ [0, ub−lb]).
+        if (t.complemented) continue;
         const v = modelData.variables[t.var_index];
         if (v.lower === null || v.lower < -1e-12) return false;
     }
@@ -2844,16 +2939,22 @@ function aggScalarLabel(term) {
 
 function refreshAllAggMarkers() {
     // Clear all prior agg markers, then re-apply from state.
-    constraintsList.querySelectorAll('.agg-contributing').forEach(function(r) {
-        r.classList.remove('agg-contributing');
-    });
-    constraintsList.querySelectorAll('.agg-grabbed').forEach(function(el) {
-        el.classList.remove('agg-grabbed');
-        delete el.dataset.aggScalar;
-    });
+    const roots = [constraintsList];
+    if (savedListEl) roots.push(savedListEl);
+    for (const r of roots) {
+        r.querySelectorAll('.agg-contributing').forEach(function(el) { el.classList.remove('agg-contributing'); });
+        r.querySelectorAll('.agg-grabbed').forEach(function(el) {
+            el.classList.remove('agg-grabbed');
+            delete el.dataset.aggScalar;
+        });
+    }
     for (const [key, term] of aggState.terms) {
         if (term.syntheticConstraint) continue;  // bound substitution — no DOM row
-        const row = constraintsList.querySelector('.constraint-row[data-con-idx="' + key + '"]');
+        const isSaved = String(key).startsWith('s:');
+        const root = isSaved ? savedListEl : constraintsList;
+        if (!root) continue;
+        const selector = (isSaved ? '.saved-row' : '.constraint-row') + '[data-con-idx="' + key + '"]';
+        const row = root.querySelector(selector);
         if (!row) continue;
         row.classList.add('agg-contributing');
         const handle = row.querySelector('.agg-grab[data-side="' + term.side + '"]');
@@ -2861,6 +2962,122 @@ function refreshAllAggMarkers() {
             handle.classList.add('agg-grabbed');
             handle.dataset.aggScalar = aggScalarLabel(term);
         }
+    }
+}
+
+// ── Saved-inequalities panel ─────────────────────────────────────────────────
+
+function saveCurrentAggregate() {
+    if (aggState.mode === null || !modelData) return;
+    const combined = combineDisplay();
+    if (combined.terms.length === 0) return;
+    const id = savedIdCounter++;
+    const name = 'derived_' + (savedInequalities.size + 1);
+
+    // Un-complement each complemented term before storing: the displayed form
+    // uses x̄ = U − x, so coef·x̄ = coef·U − coef·x. Move coef·U to the RHS and
+    // flip the coef on the real variable. This keeps the saved row expressed
+    // in original variables so it composes with everything else.
+    let savedRhs = combined.rhs;
+    const savedTerms = combined.terms.map(function(t) {
+        let coeff = t.coeff;
+        if (t.complemented) {
+            const U = t.complementUb !== undefined ? t.complementUb : 0;
+            savedRhs -= t.coeff * U;
+            coeff = -t.coeff;
+        }
+        return { var_index: t.var_index, coeff: coeff, var_type: t.var_type, var_name: t.var_name };
+    });
+
+    const saved = {
+        id: id,
+        name: name,
+        terms: savedTerms,
+        lower: aggState.mode === '<=' ? null : savedRhs,
+        upper: aggState.mode === '<=' ? savedRhs : null,
+    };
+    savedInequalities.set(id, saved);
+    renderSavedList();
+}
+
+function deleteSavedInequality(id) {
+    const key = 's:' + id;
+    if (aggState.terms.has(key)) {
+        aggState.terms.delete(key);
+        if (aggState.terms.size === 0) aggState.mode = null;
+    }
+    savedInequalities.delete(id);
+    renderSavedList();
+    refreshAllAggMarkers();
+    renderAggPanel();
+}
+
+function renderSavedList() {
+    if (!savedListEl) return;
+    if (savedInequalities.size === 0) {
+        savedListEl.classList.add('hidden');
+        savedListEl.innerHTML = '';
+        return;
+    }
+    savedListEl.classList.remove('hidden');
+    const canResolve = !!currentUploadFile;
+    const resolveTitle = 'Resolve LP relaxation with these cuts added';
+    let html = '<div class="saved-list-header">'
+        + '<span>Saved inequalities</span>'
+        + '<button class="saved-resolve-btn" ' + (canResolve ? '' : 'disabled') + ' title="' + resolveTitle + '">Resolve LP (+' + savedInequalities.size + ' cuts)</button>'
+        + '</div>';
+    for (const saved of savedInequalities.values()) {
+        const key = 's:' + saved.id;
+        const expr = formatConstraint(saved, key);
+        html += '<div class="saved-row" data-con-idx="' + key + '">'
+            + '<span class="constraint-name saved-name">' + escapeHtml(saved.name) + '</span>'
+            + '<button class="saved-delete" data-saved-id="' + saved.id + '" title="Delete">&times;</button>'
+            + '<span class="constraint-expr">' + expr + '</span>'
+            + '</div>';
+    }
+    savedListEl.innerHTML = html;
+    // Wire delete buttons
+    savedListEl.querySelectorAll('.saved-delete').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const id = parseInt(btn.dataset.savedId, 10);
+            if (!isNaN(id)) deleteSavedInequality(id);
+        });
+    });
+    const resolveBtn = savedListEl.querySelector('.saved-resolve-btn');
+    if (resolveBtn && canResolve) {
+        resolveBtn.addEventListener('click', resolveLpWithSavedCuts);
+    }
+    // Reapply agg markers on the new DOM
+    refreshAllAggMarkers();
+}
+
+async function resolveLpWithSavedCuts() {
+    if (!currentUploadFile || savedInequalities.size === 0) return;
+    const extraRows = [];
+    for (const saved of savedInequalities.values()) {
+        extraRows.push({
+            lower: saved.lower,
+            upper: saved.upper,
+            coeffs: saved.terms.map(function(t) { return [t.var_index, t.coeff]; }),
+        });
+    }
+    const btn = savedListEl.querySelector('.saved-resolve-btn');
+    const oldLabel = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = 'Solving…'; btn.disabled = true; }
+    try {
+        const result = await API.solveLpWithExtraRows(currentUploadFile, isPresolved, currentSolver, extraRows);
+        lpSolution = result;
+        if (solveLpBtn) {
+            solveLpBtn.textContent = 'Hide LP (obj: ' + formatNum(result.objective_value) + ')';
+            solveLpBtn.classList.add('active');
+        }
+        renderVariablesInit();
+        renderAggPanel();
+    } catch (err) {
+        alert('LP resolve failed: ' + err.message);
+    } finally {
+        if (btn) { btn.textContent = oldLabel; btn.disabled = false; }
     }
 }
 
@@ -2877,6 +3094,24 @@ function ensureAggPanel() {
         const varIndex = parseInt(target.dataset.varIndex, 10);
         if (isNaN(varIndex)) return;
         showZeroOutMenu(varIndex, target);
+    });
+    // Double-click a variable to complement it (shortcut for the menu option).
+    aggPanelEl.addEventListener('dblclick', function(e) {
+        const target = e.target.closest('.agg-zero');
+        if (!target || !aggPanelEl.contains(target)) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const varIndex = parseInt(target.dataset.varIndex, 10);
+        if (isNaN(varIndex)) return;
+        const v = modelData && modelData.variables[varIndex];
+        if (!v) return;
+        const upInf = v.upper === null || v.upper > INF_THRESHOLD;
+        if (upInf) return;  // no finite upper — can't complement
+        closeZeroOutMenu();
+        if (aggState.complemented.has(varIndex)) aggState.complemented.delete(varIndex);
+        else aggState.complemented.add(varIndex);
+        refreshAllAggMarkers();
+        renderAggPanel();
     });
 }
 
@@ -2899,8 +3134,15 @@ function formatAggregateTerms(terms) {
         if (Math.abs(absCoeff - 1) > 1e-10) {
             inner += '<span class="coeff">' + formatNum(absCoeff) + '</span>';
         }
-        inner += '<span class="' + varClass + '">x' + t.var_index + '</span>';
-        html += '<span class="agg-zero" data-var-index="' + t.var_index + '" title="Click to cancel x' + t.var_index + ' from the aggregate">' + inner + '</span>';
+        const varInner = 'x' + t.var_index;
+        const varHtml = t.complemented
+            ? '<span class="' + varClass + ' var-negated">' + varInner + '</span>'
+            : '<span class="' + varClass + '">' + varInner + '</span>';
+        inner += varHtml;
+        const title = t.complemented
+            ? 'Click to transform x' + t.var_index + ' (currently complemented)'
+            : 'Click to transform x' + t.var_index + ' in the aggregate';
+        html += '<span class="agg-zero" data-var-index="' + t.var_index + '" title="' + title + '">' + inner + '</span>';
     }
     return html;
 }
@@ -2924,7 +3166,7 @@ function computeZeroOutOptions(varIndex) {
     let aggCoef = 0;
     const contribs = [];
     for (const [key, term] of aggState.terms) {
-        const c = term.syntheticConstraint || modelData.constraints[key];
+        const c = term.syntheticConstraint || resolveConstraint(key);
         let varCoef = 0;
         for (const t of c.terms) {
             if (t.var_index === varIndex) { varCoef = t.coeff; break; }
@@ -2980,7 +3222,24 @@ function computeZeroOutOptions(varIndex) {
         });
     }
 
-    return { scalarOptions: scalarOptions, boundOptions: boundOptions };
+    // Complement x → (ub − x). Requires a finite upper bound.
+    const complementOptions = [];
+    const v = modelData.variables[varIndex];
+    if (v) {
+        const upInf = v.upper === null || v.upper > INF_THRESHOLD;
+        if (!upInf) {
+            const isComp = aggState.complemented.has(varIndex);
+            complementOptions.push({
+                kind: 'complement',
+                varIndex: varIndex,
+                currentlyComplemented: isComp,
+                name: v.name,
+                upper: v.upper,
+            });
+        }
+    }
+
+    return { scalarOptions: scalarOptions, boundOptions: boundOptions, complementOptions: complementOptions };
 }
 
 let _zeroMenuEl = null;
@@ -3001,12 +3260,12 @@ function _zeroMenuKeydown(e) {
 function showZeroOutMenu(varIndex, anchorEl) {
     closeZeroOutMenu();
     const opts = computeZeroOutOptions(varIndex);
-    const allOptions = opts.scalarOptions.concat(opts.boundOptions);
-    if (allOptions.length === 0) return;
+    const hasAny = opts.scalarOptions.length + opts.boundOptions.length + opts.complementOptions.length > 0;
+    if (!hasAny) return;
 
     const menu = document.createElement('div');
     menu.className = 'agg-zero-menu';
-    let html = '<div class="agg-zero-menu-header">Cancel x' + varIndex + '</div>';
+    let html = '<div class="agg-zero-menu-header">Transform x' + varIndex + '</div>';
 
     if (opts.scalarOptions.length > 0) {
         html += '<div class="agg-zero-section">re-scale a contributor</div>';
@@ -3032,6 +3291,21 @@ function showZeroOutMenu(varIndex, anchorEl) {
                 + '</div>';
         });
     }
+    if (opts.complementOptions.length > 0) {
+        html += '<div class="agg-zero-section">complement</div>';
+        opts.complementOptions.forEach(function(opt, i) {
+            const label = opt.currentlyComplemented
+                ? 'Un-complement ' + opt.name
+                : 'Complement ' + opt.name;
+            const arrow = opt.currentlyComplemented
+                ? 'back to x'
+                : 'x \u2192 ' + formatNum(opt.upper) + '\u2212x';
+            html += '<div class="agg-zero-option" data-opt-kind="complement" data-opt-idx="' + i + '">'
+                + '<span class="agg-zero-name">' + escapeHtml(label) + '</span>'
+                + '<span class="agg-zero-scale">' + arrow + '</span>'
+                + '</div>';
+        });
+    }
 
     menu.innerHTML = html;
     document.body.appendChild(menu);
@@ -3050,7 +3324,10 @@ function showZeroOutMenu(varIndex, anchorEl) {
         o.addEventListener('click', function() {
             const optKind = o.dataset.optKind;
             const optIdx = parseInt(o.dataset.optIdx, 10);
-            const opt = (optKind === 'scalar' ? opts.scalarOptions : opts.boundOptions)[optIdx];
+            const list = optKind === 'scalar' ? opts.scalarOptions
+                       : optKind === 'bound' ? opts.boundOptions
+                       : opts.complementOptions;
+            const opt = list[optIdx];
             if (!opt) return;
             applyZeroOutOption(opt);
             closeZeroOutMenu();
@@ -3083,6 +3360,12 @@ function applyZeroOutOption(opt) {
             side: opt.side,
             syntheticConstraint: opt.synth,
         });
+    } else if (opt.kind === 'complement') {
+        if (aggState.complemented.has(opt.varIndex)) {
+            aggState.complemented.delete(opt.varIndex);
+        } else {
+            aggState.complemented.add(opt.varIndex);
+        }
     }
     refreshAllAggMarkers();
     renderAggPanel();
@@ -3110,9 +3393,12 @@ function renderAggPanel() {
 
     let rowsHtml = '';
     for (const [key, term] of aggState.terms) {
-        const c = term.syntheticConstraint || modelData.constraints[key];
+        const c = term.syntheticConstraint || resolveConstraint(key);
+        const isSaved = String(key).startsWith('s:');
         const signBadge = term.sign < 0 ? '<span class="agg-neg-badge" title="Auto-negated to match mode">×−1</span>' : '';
-        const nameClass = term.syntheticConstraint ? 'agg-con-name agg-bound-name' : 'agg-con-name';
+        const nameClass = term.syntheticConstraint
+            ? 'agg-con-name agg-bound-name'
+            : (isSaved ? 'agg-con-name agg-saved-name' : 'agg-con-name');
         rowsHtml += '<div class="agg-term" data-con-idx="' + key + '">'
             + '<input type="number" class="agg-scalar-input" step="any" min="0" value="' + term.scale + '" data-con-idx="' + key + '" aria-label="scalar">'
             + '<span class="agg-times">×</span>'
@@ -3134,19 +3420,22 @@ function renderAggPanel() {
         + '<span class="constraint-expr">'
         + aggLhsHtml + ' <span class="relation">' + relSym + '</span> '
         + '<span class="bound-val">' + formatNum(combined.rhs) + '</span>'
-        + '</span></div>';
+        + '</span></div>'
+        + formatViolationLine(evalAggregateAtLp(combined));
 
     const cgLabel = aggState.cgApplied ? 'Undo CG' : 'Apply CG';
     const cgTitle = eligible
         ? (aggState.cgApplied ? 'Show raw aggregate' : 'Floor coefficients (Chvátal–Gomory rounding)')
         : 'CG requires all variables in Σ to be non-negative integer/binary';
     const cgBtn = '<button class="agg-cg-btn" ' + (eligible ? '' : 'disabled') + ' title="' + cgTitle + '">' + cgLabel + '</button>';
+    const saveBtn = '<button class="agg-save-btn" title="Save this inequality for reuse in other aggregations">Save</button>';
 
     aggPanelEl.innerHTML = '<div class="agg-header">'
         + '<span class="agg-title">Aggregation</span>'
         + '<button class="agg-mode-toggle" title="Flip mode (negates all signs)">' + relSym + '</button>'
         + '<span class="agg-spacer"></span>'
         + cgBtn
+        + saveBtn
         + '<button class="agg-clear" title="Clear">Clear</button>'
         + '</div>'
         + '<div class="agg-terms">' + rowsHtml + '</div>'
@@ -3155,6 +3444,8 @@ function renderAggPanel() {
 
     aggPanelEl.querySelector('.agg-mode-toggle').addEventListener('click', flipAggMode);
     aggPanelEl.querySelector('.agg-clear').addEventListener('click', clearAggregation);
+    const saveBtnEl = aggPanelEl.querySelector('.agg-save-btn');
+    if (saveBtnEl) saveBtnEl.addEventListener('click', saveCurrentAggregate);
     const cgBtnEl = aggPanelEl.querySelector('.agg-cg-btn');
     if (cgBtnEl && !cgBtnEl.disabled) {
         cgBtnEl.addEventListener('click', function() {
@@ -3172,13 +3463,7 @@ function renderAggPanel() {
             const v = parseFloat(globalInp.value);
             if (isNaN(v) || v < 0) return;
             aggState.globalScale = v;
-            const recombined = combineDisplay();
-            const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
-            if (resultEl) {
-                resultEl.innerHTML = formatAggregateTerms(recombined.terms)
-                    + ' <span class="relation">' + relSym + '</span> '
-                    + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
-            }
+            _updateAggResultInPlace(relSym);
         });
     }
     aggPanelEl.querySelectorAll('.agg-remove').forEach(function(btn) {
@@ -3211,28 +3496,44 @@ function renderAggPanel() {
                     if (handle) handle.dataset.aggScalar = aggScalarLabel(term);
                 }
             }
-            const recombined = combineDisplay();
-            const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
-            if (resultEl) {
-                resultEl.innerHTML = formatAggregateTerms(recombined.terms)
-                    + ' <span class="relation">' + relSym + '</span> '
-                    + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
-            }
+            _updateAggResultInPlace(relSym);
         });
     });
+}
+
+// Refresh the aggregate Σ line and violation line without a full re-render
+// (used by live inputs so the focused field keeps its caret).
+function _updateAggResultInPlace(relSym) {
+    if (!aggPanelEl) return;
+    const recombined = combineDisplay();
+    const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
+    if (resultEl) {
+        resultEl.innerHTML = formatAggregateTerms(recombined.terms)
+            + ' <span class="relation">' + relSym + '</span> '
+            + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
+    }
+    const oldViol = aggPanelEl.querySelector('.agg-violation');
+    if (oldViol) oldViol.remove();
+    const violHtml = formatViolationLine(evalAggregateAtLp(recombined));
+    if (violHtml) {
+        const resultWrap = aggPanelEl.querySelector('.agg-result');
+        if (resultWrap) resultWrap.insertAdjacentHTML('afterend', violHtml);
+    }
 }
 
 // Unified pointer-based grab/drag (more reliable than HTML5 DnD on inline spans)
 let _aggDrag = null;  // { conIdx, side, startX, startY, dragging, preview }
 const AGG_DRAG_THRESHOLD_SQ = 16;  // 4px
 
-constraintsList.addEventListener('pointerdown', function(e) {
+function _aggOnPointerDown(e) {
     if (e.button !== 0) return;
     const handle = e.target.closest('.agg-grab');
-    if (!handle || !constraintsList.contains(handle)) return;
-    const conIdx = parseInt(handle.dataset.conIdx, 10);
+    if (!handle) return;
+    const conIdx = handle.dataset.conIdx;
     const side = handle.dataset.side;
-    if (isNaN(conIdx) || !side) return;
+    if (!conIdx || !side) return;
+    // Only accept handles rooted in the constraints list or the saved list.
+    if (!(constraintsList.contains(handle) || (savedListEl && savedListEl.contains(handle)))) return;
     _aggDrag = {
         conIdx: conIdx,
         side: side,
@@ -3242,7 +3543,9 @@ constraintsList.addEventListener('pointerdown', function(e) {
         preview: null,
         labelText: handle.textContent.trim(),
     };
-});
+}
+constraintsList.addEventListener('pointerdown', _aggOnPointerDown);
+if (savedListEl) savedListEl.addEventListener('pointerdown', _aggOnPointerDown);
 
 document.addEventListener('pointermove', function(e) {
     if (!_aggDrag) return;
