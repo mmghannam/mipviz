@@ -823,7 +823,7 @@ function doSolveMip() {
     // Terminate previous worker if any
     if (solveWorker) solveWorker.terminate();
 
-    solveWorker = new Worker('./solve-worker.js');
+    solveWorker = new Worker('./solve-worker.js?v=2');
 
     solveWorker.onmessage = function(e) {
         const msg = e.data;
