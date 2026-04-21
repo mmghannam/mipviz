@@ -829,15 +829,16 @@ function doSolveMip() {
         const msg = e.data;
         if (msg.type === 'ready') {
             // Worker loaded, send the file
+            var params = loadSolverParams(solver);
             currentUploadFile.arrayBuffer().then(function(buffer) {
                 // Decompress if needed
                 if (currentUploadFile.name.endsWith('.gz')) {
                     const ds = new DecompressionStream('gzip');
                     new Response(new Blob([buffer]).stream().pipeThrough(ds)).arrayBuffer().then(function(decompressed) {
-                        solveWorker.postMessage({ type: 'solve', fileBytes: decompressed, fileName: currentUploadFile.name, solver: solver });
+                        solveWorker.postMessage({ type: 'solve', fileBytes: decompressed, fileName: currentUploadFile.name, solver: solver, params: params });
                     });
                 } else {
-                    solveWorker.postMessage({ type: 'solve', fileBytes: buffer, fileName: currentUploadFile.name, solver: solver });
+                    solveWorker.postMessage({ type: 'solve', fileBytes: buffer, fileName: currentUploadFile.name, solver: solver, params: params });
                 }
             });
         } else if (msg.type === 'log') {
@@ -891,7 +892,7 @@ document.getElementById('solve-modal-apply').addEventListener('click', function(
     document.getElementById('solve-modal').classList.add('hidden');
     solveLpBtn.textContent = 'Hide MIP (obj: ' + formatNum(mipSolution.objective_value) + ')';
     solveLpBtn.classList.add('active');
-    renderVariablesInit();
+    refreshLpDependentViews();
 });
 
 // --- Solve visible constraints ---
@@ -915,11 +916,11 @@ document.getElementById('solve-visible-btn').addEventListener('click', async fun
     btn.textContent = 'Solving (' + visible.length + ')…';
     btn.disabled = true;
     try {
-        var result = await API.solveConstraintSubset(currentUploadFile, visible, true);
+        var result = await API.solveConstraintSubset(currentUploadFile, visible, true, getActiveSolverParams());
         lpSolution = result;
         solveLpBtn.textContent = 'Hide LP (obj: ' + formatNum(result.objective_value) + ', ' + visible.length + ' cons)';
         solveLpBtn.classList.add('active');
-        renderVariablesInit();
+        refreshLpDependentViews();
     } catch (err) {
         showToast('Solve error: ' + err.message);
     } finally {
@@ -938,17 +939,17 @@ solveLpBtn.addEventListener('click', async () => {
         lpSolution = null;
         solveLpBtn.textContent = 'Solve LP';
         solveLpBtn.classList.remove('active');
-        renderVariablesInit();
+        refreshLpDependentViews();
         if (typeof renderAggPanel === 'function') renderAggPanel();
         return;
     }
     solveLpBtn.textContent = 'Solving…';
     solveLpBtn.disabled = true;
     try {
-        lpSolution = await API.solveRootLp(currentUploadFile, isPresolved, currentSolver);
+        lpSolution = await API.solveRootLp(currentUploadFile, isPresolved, currentSolver, getActiveSolverParams());
         solveLpBtn.textContent = 'Hide LP (obj: ' + formatNum(lpSolution.objective_value) + ')';
         solveLpBtn.classList.add('active');
-        renderVariablesInit();
+        refreshLpDependentViews();
         if (typeof renderAggPanel === 'function') renderAggPanel();
     } catch (err) {
         showToast('LP solve error: ' + err.message);
@@ -1026,8 +1027,109 @@ document.querySelectorAll('.solver-option').forEach(btn => {
         currentSolver = btn.dataset.solver;
         document.querySelectorAll('.solver-option').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        updateSolverSettingsIndicator();
     });
 });
+
+// --- Solver parameters (gear popover) ---
+// Plain-text lines: "key = value" or "key value"; "#" starts a comment.
+// Persisted in localStorage per solver.
+function solverParamsKey(solver) { return 'mipviz:solver-params:' + solver; }
+
+function loadSolverParams(solver) {
+    try { return localStorage.getItem(solverParamsKey(solver)) || ''; }
+    catch (_) { return ''; }
+}
+
+function saveSolverParams(solver, text) {
+    try {
+        if (text && text.trim()) localStorage.setItem(solverParamsKey(solver), text);
+        else localStorage.removeItem(solverParamsKey(solver));
+    } catch (_) {}
+}
+
+function getActiveSolverParams() {
+    return loadSolverParams(currentSolver);
+}
+
+function hasSolverParams(solver) {
+    var txt = loadSolverParams(solver);
+    if (!txt) return false;
+    return txt.split('\n').some(function(line) {
+        var s = line.trim();
+        return s && s[0] !== '#';
+    });
+}
+
+function updateSolverSettingsIndicator() {
+    var btn = document.getElementById('solver-settings-btn');
+    if (!btn) return;
+    btn.classList.toggle('has-params', hasSolverParams(currentSolver));
+    btn.title = 'Solver parameters (' + currentSolver.toUpperCase() + ')';
+}
+
+(function initSolverSettingsPopover() {
+    var btn = document.getElementById('solver-settings-btn');
+    var pop = document.getElementById('solver-settings-popover');
+    var text = document.getElementById('solver-settings-text');
+    var title = document.getElementById('solver-settings-title');
+    var hint = document.getElementById('solver-settings-hint');
+    var saveBtn = document.getElementById('solver-settings-save');
+    var clearBtn = document.getElementById('solver-settings-clear');
+    var closeBtn = document.getElementById('solver-settings-close');
+    if (!btn || !pop) return;
+
+    var PLACEHOLDERS = {
+        scip: '# one per line\n# e.g. limits/time = 10\n#      presolve/maxrounds = 0',
+        highs: '# one per line\n# e.g. time_limit = 10\n#      presolve = off\n#      mip_rel_gap = 1e-4'
+    };
+    var DOCS_URLS = {
+        scip: 'https://www.scipopt.org/doc/html/PARAMETERS.php',
+        highs: 'https://ergo-code.github.io/HiGHS/dev/options/definitions/'
+    };
+    var docsLink = document.getElementById('solver-settings-docs');
+
+    function open() {
+        title.textContent = 'Parameters — ' + currentSolver.toUpperCase();
+        text.value = loadSolverParams(currentSolver);
+        text.placeholder = PLACEHOLDERS[currentSolver] || '';
+        if (docsLink) docsLink.href = DOCS_URLS[currentSolver] || '#';
+        hint.textContent = '';
+        hint.classList.remove('error');
+        pop.classList.remove('hidden');
+        setTimeout(function() { text.focus(); }, 0);
+    }
+    function close() { pop.classList.add('hidden'); }
+
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (pop.classList.contains('hidden')) open(); else close();
+    });
+    closeBtn.addEventListener('click', close);
+    saveBtn.addEventListener('click', function() {
+        saveSolverParams(currentSolver, text.value);
+        hint.textContent = 'Saved.';
+        hint.classList.remove('error');
+        updateSolverSettingsIndicator();
+    });
+    clearBtn.addEventListener('click', function() {
+        text.value = '';
+        saveSolverParams(currentSolver, '');
+        hint.textContent = 'Cleared.';
+        hint.classList.remove('error');
+        updateSolverSettingsIndicator();
+    });
+    document.addEventListener('click', function(e) {
+        if (pop.classList.contains('hidden')) return;
+        if (pop.contains(e.target) || btn.contains(e.target)) return;
+        close();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !pop.classList.contains('hidden')) close();
+    });
+
+    updateSolverSettingsIndicator();
+})();
 
 // --- Cliques & Implications ---
 
@@ -1060,7 +1162,7 @@ function cliqueVarClass(m) {
     if (!modelData || !modelData.variables || m.var_index == null) return 'clique-var';
     var v = modelData.variables[m.var_index];
     if (!v) return 'clique-var';
-    return 'var-' + v.type;
+    return 'var-' + v.type + varFracClass(m.var_index);
 }
 
 function implVarTooltip(varIndex, varName) {
@@ -1076,7 +1178,7 @@ function implVarClass(varIndex) {
     if (!modelData || !modelData.variables || varIndex == null) return 'impl-var';
     var v = modelData.variables[varIndex];
     if (!v) return 'impl-var';
-    return 'var-' + v.type;
+    return 'var-' + v.type + varFracClass(varIndex);
 }
 
 function renderCliquesImplications(data) {
@@ -1133,7 +1235,7 @@ function renderCliquesImplications(data) {
                 var varTip = cliqueVarTooltip(m);
                 var varClass = cliqueVarClass(m);
                 var negated = !m.value;
-                html += '<span class="' + varClass + ' var-hover' + (negated ? ' var-negated' : '') + '" data-var="' + m.var_index + '" data-tip="' + varTip + '">x' + m.var_index + '</span>';
+                html += '<span class="' + varClass + ' var-hover' + (negated ? ' var-negated' : '') + '" data-var="' + m.var_index + '" data-tip="' + varTip + '"' + varTipLpAttr(m.var_index) + '>x' + m.var_index + '</span>';
             });
             html += '</span>' + tag + '</div>';
         }
@@ -1154,10 +1256,10 @@ function renderCliquesImplications(data) {
             var fromClass = implVarClass(imp.from_var_index);
             var toClass = implVarClass(imp.to_var_index);
             html += '<div class="implication-item">';
-            html += '<span class="' + fromClass + ' var-hover" data-var="' + imp.from_var_index + '" data-tip="' + fromTip + '">x' + imp.from_var_index + '</span>';
+            html += '<span class="' + fromClass + ' var-hover" data-var="' + imp.from_var_index + '" data-tip="' + fromTip + '"' + varTipLpAttr(imp.from_var_index) + '>x' + imp.from_var_index + '</span>';
             html += ' <span class="impl-from-val">= ' + fromVal + '</span>';
             html += ' <span class="impl-arrow">&rarr;</span> ';
-            html += '<span class="' + toClass + ' var-hover" data-var="' + imp.to_var_index + '" data-tip="' + toTip + '">x' + imp.to_var_index + '</span>';
+            html += '<span class="' + toClass + ' var-hover" data-var="' + imp.to_var_index + '" data-tip="' + toTip + '"' + varTipLpAttr(imp.to_var_index) + '>x' + imp.to_var_index + '</span>';
             html += ' <span class="impl-to-bound">' + arrow + ' ' + formatImplVal(imp.bound_value) + '</span>';
             html += '</div>';
         }
@@ -1834,7 +1936,7 @@ function formatTermsCompressed(terms) {
             var lo = v.lower === null || v.lower < -INF_THRESHOLD ? '-\u221E' : formatNum(v.lower);
             var hi = v.upper === null || v.upper > INF_THRESHOLD ? '\u221E' : formatNum(v.upper);
             var tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') \u2208 [' + lo + ', ' + hi + '] \u00b7 ' + t.var_type + ' \u00b7 obj: ' + formatNum(v.obj));
-            html += '<span class="' + varClass + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '">x' + t.var_index + '</span>';
+            html += '<span class="' + varClass + varFracClass(t.var_index) + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '"' + varTipLpAttr(t.var_index) + '>x' + t.var_index + '</span>';
         } else {
             // Group — render as compressed summation
             var count = g.terms.length;
@@ -1872,7 +1974,7 @@ function formatTermsCompressed(terms) {
                 var ghi = gv.upper === null || gv.upper > INF_THRESHOLD ? '\u221E' : formatNum(gv.upper);
                 var gtip = escapeAttr('x' + gt.var_index + ' (' + gv.name + ') \u2208 [' + glo + ', ' + ghi + '] \u00b7 ' + gt.var_type + ' \u00b7 obj: ' + formatNum(gv.obj));
                 if (ti > 0) html += ' <span class="op">+</span> ';
-                html += '<span class="var-' + gt.var_type + ' var-hover" data-var="' + gt.var_index + '" data-tip="' + gtip + '">x' + gt.var_index + '</span>';
+                html += '<span class="var-' + gt.var_type + varFracClass(gt.var_index) + ' var-hover" data-var="' + gt.var_index + '" data-tip="' + gtip + '"' + varTipLpAttr(gt.var_index) + '>x' + gt.var_index + '</span>';
             }
             html += ')</span></span></span>';
         }
@@ -1953,6 +2055,22 @@ function isFractional(i) {
     var v = modelData.variables[i];
     if (v.var_type !== 'integer' && v.var_type !== 'binary') return false;
     return Math.abs(lpSolution.col_values[i] - Math.round(lpSolution.col_values[i])) > 1e-6;
+}
+
+function varFracClass(i) {
+    return isFractional(i) ? ' var-fractional' : '';
+}
+
+function varTipLpAttr(i) {
+    if (!lpSolution || !lpSolution.col_values || i == null || i >= lpSolution.col_values.length) return '';
+    return ' data-tip-lp="' + formatNum(lpSolution.col_values[i]) + '"';
+}
+
+function refreshLpDependentViews() {
+    if (!modelData) return;
+    renderVariablesInit();
+    renderObjective();
+    renderConstraintsInit();
 }
 
 function renderVariablesInit() {
@@ -2221,7 +2339,7 @@ function renderMoreVariables() {
 
             row.innerHTML =
                 '<span class="variable-label-area">' +
-                    '<span class="variable-name var-link var-hover ' + varClass + '" data-var="' + i + '" data-tip="' + varTip + '">x' + i + '</span>' +
+                    '<span class="variable-name var-link var-hover ' + varClass + varFracClass(i) + '" data-var="' + i + '" data-tip="' + varTip + '"' + varTipLpAttr(i) + '>x' + i + '</span>' +
                     '<span class="variable-original-name">' + escapeHtml(v.name) + '</span>' +
                 '</span>' +
                 buildVarBarHtml(v, varClass, bp.barH, bp.loFinite, bp.hiFinite, bp.lo, bp.hi, bp.loLabel, bp.hiLabel, markerHtml) +
@@ -2322,7 +2440,7 @@ function renderMoreVariablesCompressed() {
                                 var cTip = escapeAttr('x' + idx + ' (' + cv.name + ') ∈ [' + cbp.loLabel + ', ' + cbp.hiLabel + '] · ' + cv.var_type + ' · obj: ' + formatNum(cv.obj));
                                 cRow.innerHTML =
                                     '<span class="variable-label-area">' +
-                                        '<span class="variable-name var-link var-hover ' + cClass + '" data-var="' + idx + '" data-tip="' + cTip + '">x' + idx + '</span>' +
+                                        '<span class="variable-name var-link var-hover ' + cClass + varFracClass(idx) + '" data-var="' + idx + '" data-tip="' + cTip + '"' + varTipLpAttr(idx) + '>x' + idx + '</span>' +
                                         '<span class="variable-original-name">' + escapeHtml(cv.name) + '</span>' +
                                     '</span>' +
                                     buildVarBarHtml(cv, cClass, cbp.barH, cbp.loFinite, cbp.hiFinite, cbp.lo, cbp.hi, cbp.loLabel, cbp.hiLabel, cMarker) +
@@ -2616,7 +2734,7 @@ function formatTerms(terms) {
         const lo = v.lower === null || v.lower < -INF_THRESHOLD ? '-∞' : formatNum(v.lower);
         const hi = v.upper === null || v.upper > INF_THRESHOLD ? '∞' : formatNum(v.upper);
         const tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') ∈ [' + lo + ', ' + hi + '] · ' + t.var_type + ' · obj: ' + formatNum(v.obj));
-        html += '<span class="' + varClass + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '">x' + t.var_index + '</span>';
+        html += '<span class="' + varClass + varFracClass(t.var_index) + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '"' + varTipLpAttr(t.var_index) + '>x' + t.var_index + '</span>';
     }
     return html;
 }
@@ -2641,7 +2759,9 @@ const aggState = {
     terms: new Map(),     // string key -> { sign: +1|-1, scale: ≥0, side, syntheticConstraint? }
     globalScale: 1,       // multiplier applied to the whole aggregate
     cgApplied: false,     // true → display floor/ceil of coeffs and rhs
-    complemented: new Set()  // binary varIndex set: substitute x → (1 − x)
+    mirApplied: false,    // true → display MIR-rounded form (mutex with cgApplied)
+    complemented: new Set(), // substitute x → (ub − x)  [requires finite upper]
+    shifted: new Set()       // substitute x → (x − lb)  [mutually exclusive with complement]
 };
 
 // Saved "derived" inequalities — snapshots of past aggregations that can be
@@ -2742,7 +2862,9 @@ function clearAggregation() {
     aggState.terms.clear();
     aggState.globalScale = 1;
     aggState.cgApplied = false;
+    aggState.mirApplied = false;
     aggState.complemented.clear();
+    aggState.shifted.clear();
     refreshAllAggMarkers();
     renderAggPanel();
 }
@@ -2863,6 +2985,20 @@ function combineAggregate() {
         info.complemented = true;
         info.complementUb = ub;
     }
+    // Apply shifts x → (x − lb): coef unchanged, rhs shifts by `−coef·lb`.
+    // Mutually exclusive with complement per variable.
+    for (const varIdx of aggState.shifted) {
+        if (aggState.complemented.has(varIdx)) continue;
+        const info = coefByVar.get(varIdx);
+        if (!info) continue;
+        const v = modelData.variables[varIdx];
+        if (!v) continue;
+        const lb = v.lower;
+        if (lb === null || lb < -INF_THRESHOLD) continue;
+        rhs -= info.coeff * lb;
+        info.shifted = true;
+        info.shiftLb = lb;
+    }
     const terms = [];
     for (const info of coefByVar.values()) {
         if (Math.abs(info.coeff) > 1e-10) terms.push(info);
@@ -2876,21 +3012,65 @@ function combineAggregate() {
 // For ≥ aggregates, ceil instead of floor.
 function combineDisplay() {
     const r = combineAggregate();
-    if (!aggState.cgApplied) return r;
+    if (aggState.cgApplied) return applyCgRounding(r);
+    if (aggState.mirApplied) return applyMirRounding(r);
+    return r;
+}
+
+function _copyTermMeta(t, coeff) {
+    return {
+        var_index: t.var_index,
+        coeff: coeff,
+        var_type: t.var_type,
+        var_name: t.var_name,
+        complemented: t.complemented,
+        complementUb: t.complementUb,
+        shifted: t.shifted,
+        shiftLb: t.shiftLb,
+    };
+}
+
+function applyCgRounding(r) {
     const round = aggState.mode === '<=' ? Math.floor : Math.ceil;
     const rounded = [];
     for (const t of r.terms) {
         const c = round(t.coeff);
-        if (Math.abs(c) > 1e-10) rounded.push({
-            var_index: t.var_index,
-            coeff: c,
-            var_type: t.var_type,
-            var_name: t.var_name,
-            complemented: t.complemented,
-            complementUb: t.complementUb,
-        });
+        if (Math.abs(c) > 1e-10) rounded.push(_copyTermMeta(t, c));
     }
     return { terms: rounded, rhs: round(r.rhs) };
+}
+
+// Standard MIR (≤ case): given `Σ aᵢ xᵢ + Σ cⱼ yⱼ ≤ b` with all vars ≥ 0,
+// yield `Σ a'ᵢ xᵢ + Σ c'ⱼ yⱼ ≤ ⌊b⌋` where, with f = frac(b) and ϕ = 1/(1−f):
+//   integer:     a'ᵢ = ⌊aᵢ⌋ + max(0, (frac(aᵢ) − f) · ϕ)
+//   continuous:  positive coefs → 0 (relaxed); negative coefs → cⱼ · ϕ.
+// Follows HiGHS HighsCutGeneration.cpp lines 690–717 with δ = 1.
+function applyMirRounding(r) {
+    const b = r.rhs;
+    const bFloor = Math.floor(b);
+    const f0 = b - bFloor;
+    if (f0 < 1e-9 || f0 > 1 - 1e-9) {
+        // No fractional rhs → MIR produces the same inequality.
+        return r;
+    }
+    const phi = 1 / (1 - f0);
+    const rounded = [];
+    for (const t of r.terms) {
+        const isInt = t.var_type === 'integer' || t.var_type === 'binary';
+        let newCoef;
+        if (isInt) {
+            const a = t.coeff;
+            const aFloor = Math.floor(a);
+            const fj = a - aFloor;
+            newCoef = aFloor + (fj > f0 + 1e-12 ? (fj - f0) * phi : 0);
+        } else if (t.coeff < 0) {
+            newCoef = t.coeff * phi;
+        } else {
+            newCoef = 0;  // positive continuous coefs are relaxed
+        }
+        if (Math.abs(newCoef) > 1e-10) rounded.push(_copyTermMeta(t, newCoef));
+    }
+    return { terms: rounded, rhs: bFloor };
 }
 
 // Evaluate the displayed aggregate at the current LP solution. Returns null
@@ -2948,10 +3128,25 @@ function aggregateIsCgEligible() {
     if (combined.terms.length === 0) return false;
     for (const t of combined.terms) {
         if (t.var_type !== 'integer' && t.var_type !== 'binary') return false;
-        // Complemented variables use the effective lower bound 0 (since ub−x ∈ [0, ub−lb]).
-        if (t.complemented) continue;
+        // Complemented or shifted vars have effective lower 0 after transform.
+        if (t.complemented || t.shifted) continue;
         const v = modelData.variables[t.var_index];
         if (v.lower === null || v.lower < -1e-12) return false;
+    }
+    return true;
+}
+
+// MIR needs every (displayed) variable to have effective lower bound 0 and
+// aggregate mode ≤. Integer and continuous vars are both allowed.
+function aggregateIsMirEligible() {
+    if (aggState.mode !== '<=' || aggState.terms.size === 0) return false;
+    const combined = combineAggregate();
+    if (combined.terms.length === 0) return false;
+    for (const t of combined.terms) {
+        if (t.complemented || t.shifted) continue;
+        const v = modelData.variables[t.var_index];
+        if (v.lower === null) return false;
+        if (Math.abs(v.lower) > 1e-9) return false;  // not at 0 → not eligible
     }
     return true;
 }
@@ -3012,10 +3207,10 @@ function saveCurrentAggregate() {
     const id = savedIdCounter++;
     const name = 'derived_' + (savedInequalities.size + 1);
 
-    // Un-complement each complemented term before storing: the displayed form
-    // uses x̄ = U − x, so coef·x̄ = coef·U − coef·x. Move coef·U to the RHS and
-    // flip the coef on the real variable. This keeps the saved row expressed
-    // in original variables so it composes with everything else.
+    // Undo any complement/shift transforms before storing so the saved row is
+    // expressed in the original variables:
+    //   complement: coef·x̄ = coef·U − coef·x   → flip coef, rhs gains coef·U.
+    //   shift:      coef·x' = coef·(x − L)       → coef unchanged, rhs gains coef·L.
     let savedRhs = combined.rhs;
     const savedTerms = combined.terms.map(function(t) {
         let coeff = t.coeff;
@@ -3023,6 +3218,9 @@ function saveCurrentAggregate() {
             const U = t.complementUb !== undefined ? t.complementUb : 0;
             savedRhs -= t.coeff * U;
             coeff = -t.coeff;
+        } else if (t.shifted) {
+            const L = t.shiftLb !== undefined ? t.shiftLb : 0;
+            savedRhs += t.coeff * L;
         }
         return { var_index: t.var_index, coeff: coeff, var_type: t.var_type, var_name: t.var_name };
     });
@@ -3104,13 +3302,13 @@ async function resolveLpWithSavedCuts() {
     const oldLabel = btn ? btn.textContent : '';
     if (btn) { btn.textContent = 'Solving…'; btn.disabled = true; }
     try {
-        const result = await API.solveLpWithExtraRows(currentUploadFile, isPresolved, currentSolver, extraRows);
+        const result = await API.solveLpWithExtraRows(currentUploadFile, isPresolved, currentSolver, extraRows, getActiveSolverParams());
         lpSolution = result;
         if (solveLpBtn) {
             solveLpBtn.textContent = 'Hide LP (obj: ' + formatNum(result.objective_value) + ')';
             solveLpBtn.classList.add('active');
         }
-        renderVariablesInit();
+        refreshLpDependentViews();
         renderAggPanel();
     } catch (err) {
         alert('LP resolve failed: ' + err.message);
@@ -3173,13 +3371,13 @@ function formatAggregateTerms(terms) {
             inner += '<span class="coeff">' + formatNum(absCoeff) + '</span>';
         }
         const varInner = 'x' + t.var_index;
-        const varHtml = t.complemented
-            ? '<span class="' + varClass + ' var-negated">' + varInner + '</span>'
-            : '<span class="' + varClass + '">' + varInner + '</span>';
+        let varCls = varClass;
+        let stateTip = '';
+        if (t.complemented) { varCls += ' var-negated'; stateTip = ' (complemented)'; }
+        else if (t.shifted) { varCls += ' var-shifted'; stateTip = ' (shifted by ' + formatNum(t.shiftLb) + ')'; }
+        const varHtml = '<span class="' + varCls + '">' + varInner + '</span>';
         inner += varHtml;
-        const title = t.complemented
-            ? 'Click to transform x' + t.var_index + ' (currently complemented)'
-            : 'Click to transform x' + t.var_index + ' in the aggregate';
+        const title = 'Click to transform x' + t.var_index + stateTip;
         html += '<span class="agg-zero" data-var-index="' + t.var_index + '" title="' + title + '">' + inner + '</span>';
     }
     return html;
@@ -3262,22 +3460,38 @@ function computeZeroOutOptions(varIndex) {
 
     // Complement x → (ub − x). Requires a finite upper bound.
     const complementOptions = [];
+    // Shift x → (x − lb). Requires a finite non-zero lower bound.
+    const shiftOptions = [];
     const v = modelData.variables[varIndex];
     if (v) {
         const upInf = v.upper === null || v.upper > INF_THRESHOLD;
+        const lowInf = v.lower === null || v.lower < -INF_THRESHOLD;
         if (!upInf) {
-            const isComp = aggState.complemented.has(varIndex);
             complementOptions.push({
                 kind: 'complement',
                 varIndex: varIndex,
-                currentlyComplemented: isComp,
+                currentlyComplemented: aggState.complemented.has(varIndex),
                 name: v.name,
                 upper: v.upper,
             });
         }
+        if (!lowInf && Math.abs(v.lower) > 1e-12) {
+            shiftOptions.push({
+                kind: 'shift',
+                varIndex: varIndex,
+                currentlyShifted: aggState.shifted.has(varIndex),
+                name: v.name,
+                lower: v.lower,
+            });
+        }
     }
 
-    return { scalarOptions: scalarOptions, boundOptions: boundOptions, complementOptions: complementOptions };
+    return {
+        scalarOptions: scalarOptions,
+        boundOptions: boundOptions,
+        complementOptions: complementOptions,
+        shiftOptions: shiftOptions,
+    };
 }
 
 let _zeroMenuEl = null;
@@ -3298,7 +3512,8 @@ function _zeroMenuKeydown(e) {
 function showZeroOutMenu(varIndex, anchorEl) {
     closeZeroOutMenu();
     const opts = computeZeroOutOptions(varIndex);
-    const hasAny = opts.scalarOptions.length + opts.boundOptions.length + opts.complementOptions.length > 0;
+    const hasAny = opts.scalarOptions.length + opts.boundOptions.length
+        + opts.complementOptions.length + opts.shiftOptions.length > 0;
     if (!hasAny) return;
 
     const menu = document.createElement('div');
@@ -3329,12 +3544,24 @@ function showZeroOutMenu(varIndex, anchorEl) {
                 + '</div>';
         });
     }
-    if (opts.complementOptions.length > 0) {
-        html += '<div class="agg-zero-section">complement</div>';
+    if (opts.shiftOptions.length > 0 || opts.complementOptions.length > 0) {
+        html += '<div class="agg-zero-section">shift to lb=0</div>';
+        opts.shiftOptions.forEach(function(opt, i) {
+            const label = opt.currentlyShifted
+                ? 'Undo shift ' + opt.name
+                : 'Shift ' + opt.name + ' from lb';
+            const arrow = opt.currentlyShifted
+                ? 'back to x'
+                : 'x \u2192 x\u2212' + formatNum(opt.lower);
+            html += '<div class="agg-zero-option" data-opt-kind="shift" data-opt-idx="' + i + '">'
+                + '<span class="agg-zero-name">' + escapeHtml(label) + '</span>'
+                + '<span class="agg-zero-scale">' + arrow + '</span>'
+                + '</div>';
+        });
         opts.complementOptions.forEach(function(opt, i) {
             const label = opt.currentlyComplemented
-                ? 'Un-complement ' + opt.name
-                : 'Complement ' + opt.name;
+                ? 'Undo shift ' + opt.name
+                : 'Shift ' + opt.name + ' from ub (flips)';
             const arrow = opt.currentlyComplemented
                 ? 'back to x'
                 : 'x \u2192 ' + formatNum(opt.upper) + '\u2212x';
@@ -3364,7 +3591,8 @@ function showZeroOutMenu(varIndex, anchorEl) {
             const optIdx = parseInt(o.dataset.optIdx, 10);
             const list = optKind === 'scalar' ? opts.scalarOptions
                        : optKind === 'bound' ? opts.boundOptions
-                       : opts.complementOptions;
+                       : optKind === 'complement' ? opts.complementOptions
+                       : opts.shiftOptions;
             const opt = list[optIdx];
             if (!opt) return;
             applyZeroOutOption(opt);
@@ -3403,6 +3631,14 @@ function applyZeroOutOption(opt) {
             aggState.complemented.delete(opt.varIndex);
         } else {
             aggState.complemented.add(opt.varIndex);
+            aggState.shifted.delete(opt.varIndex);  // mutex
+        }
+    } else if (opt.kind === 'shift') {
+        if (aggState.shifted.has(opt.varIndex)) {
+            aggState.shifted.delete(opt.varIndex);
+        } else {
+            aggState.shifted.add(opt.varIndex);
+            aggState.complemented.delete(opt.varIndex);  // mutex
         }
     }
     refreshAllAggMarkers();
@@ -3424,8 +3660,12 @@ function renderAggPanel() {
     ensureAggPanel();
     aggPanelEl.classList.remove('hidden', 'empty');
 
-    const eligible = aggregateIsCgEligible();
-    if (!eligible && aggState.cgApplied) aggState.cgApplied = false;
+    const cgEligible = aggregateIsCgEligible();
+    if (!cgEligible && aggState.cgApplied) aggState.cgApplied = false;
+    const mirEligible = aggregateIsMirEligible();
+    if (!mirEligible && aggState.mirApplied) aggState.mirApplied = false;
+    // CG and MIR are mutually exclusive as display transforms.
+    if (aggState.cgApplied && aggState.mirApplied) aggState.mirApplied = false;
 
     const relSym = aggState.mode === '<=' ? '&le;' : '&ge;';
 
@@ -3462,10 +3702,17 @@ function renderAggPanel() {
         + formatViolationLine(evalAggregateAtLp(combined));
 
     const cgLabel = aggState.cgApplied ? 'Undo CG' : 'Apply CG';
-    const cgTitle = eligible
+    const cgTitle = cgEligible
         ? (aggState.cgApplied ? 'Show raw aggregate' : 'Floor coefficients (Chvátal–Gomory rounding)')
         : 'CG requires all variables in Σ to be non-negative integer/binary';
-    const cgBtn = '<button class="agg-cg-btn" ' + (eligible ? '' : 'disabled') + ' title="' + cgTitle + '">' + cgLabel + '</button>';
+    const cgBtn = '<button class="agg-cg-btn" ' + (cgEligible ? '' : 'disabled') + ' title="' + cgTitle + '">' + cgLabel + '</button>';
+
+    const mirLabel = aggState.mirApplied ? 'Undo MIR' : 'Apply MIR';
+    const mirTitle = mirEligible
+        ? (aggState.mirApplied ? 'Show raw aggregate' : 'Mixed-integer rounding cut from the current ≤ aggregate')
+        : 'MIR needs a ≤ aggregate with every variable at effective lower bound 0 (shift or complement as needed)';
+    const mirBtn = '<button class="agg-mir-btn" ' + (mirEligible ? '' : 'disabled') + ' title="' + mirTitle + '">' + mirLabel + '</button>';
+
     const saveBtn = '<button class="agg-save-btn" title="Save this inequality for reuse in other aggregations">Save</button>';
 
     aggPanelEl.innerHTML = '<div class="agg-header">'
@@ -3473,6 +3720,7 @@ function renderAggPanel() {
         + '<button class="agg-mode-toggle" title="Flip mode (negates all signs)">' + relSym + '</button>'
         + '<span class="agg-spacer"></span>'
         + cgBtn
+        + mirBtn
         + saveBtn
         + '<button class="agg-clear" title="Clear">Clear</button>'
         + '</div>'
@@ -3488,6 +3736,15 @@ function renderAggPanel() {
     if (cgBtnEl && !cgBtnEl.disabled) {
         cgBtnEl.addEventListener('click', function() {
             aggState.cgApplied = !aggState.cgApplied;
+            if (aggState.cgApplied) aggState.mirApplied = false;
+            renderAggPanel();
+        });
+    }
+    const mirBtnEl = aggPanelEl.querySelector('.agg-mir-btn');
+    if (mirBtnEl && !mirBtnEl.disabled) {
+        mirBtnEl.addEventListener('click', function() {
+            aggState.mirApplied = !aggState.mirApplied;
+            if (aggState.mirApplied) aggState.cgApplied = false;
             renderAggPanel();
         });
     }
@@ -4587,6 +4844,13 @@ document.addEventListener('mouseover', (e) => {
     const el = e.target.closest('.var-hover') || e.target.closest('.var-bar-tip');
     if (!el || !el.dataset.tip) return;
     tip.textContent = el.dataset.tip;
+    if (el.dataset.tipLp != null) {
+        tip.appendChild(document.createTextNode(' \u00b7 '));
+        const lpSpan = document.createElement('span');
+        lpSpan.className = 'tip-lp';
+        lpSpan.textContent = el.dataset.tipLp;
+        tip.appendChild(lpSpan);
+    }
     tip.classList.add('visible');
     const rect = el.getBoundingClientRect();
     tip.style.left = rect.left + rect.width / 2 + 'px';

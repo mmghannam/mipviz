@@ -15,20 +15,26 @@ MipVizWasm().then(mod => {
 onmessage = function(e) {
     if (e.data.type !== 'solve') return;
 
-    const { fileBytes, fileName, solver } = e.data;
+    const { fileBytes, fileName, solver, params } = e.data;
 
     // Write file to Emscripten FS
     const path = '/tmp/solve.mps';
     Module.FS.writeFile(path, new Uint8Array(fileBytes));
 
-    // Pass path to WASM
+    // Allocate path
     const pathBytes = new TextEncoder().encode(path);
     const pathPtr = Module._mipviz_alloc(pathBytes.length);
     Module.HEAPU8.set(pathBytes, pathPtr);
 
+    // Allocate params
+    const paramsBytes = new TextEncoder().encode(params || '');
+    const paramsPtr = paramsBytes.length > 0 ? Module._mipviz_alloc(paramsBytes.length) : 0;
+    if (paramsBytes.length > 0) Module.HEAPU8.set(paramsBytes, paramsPtr);
+
     const solveFn = solver === 'scip' ? Module._mipviz_solve_mip_scip : Module._mipviz_solve_mip;
-    const status = solveFn(pathPtr, pathBytes.length);
+    const status = solveFn(pathPtr, pathBytes.length, paramsPtr, paramsBytes.length);
     Module._mipviz_free(pathPtr, pathBytes.length);
+    if (paramsBytes.length > 0) Module._mipviz_free(paramsPtr, paramsBytes.length);
 
     // Read result
     const resultPtr = Module._mipviz_result_ptr();

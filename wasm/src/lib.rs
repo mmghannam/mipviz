@@ -74,7 +74,73 @@ pub extern "C" fn mipviz_free_result() {
 // --- Helper to read pointer+len as &str ---
 
 unsafe fn read_str<'a>(ptr: *const u8, len: usize) -> &'a str {
+    if ptr.is_null() || len == 0 {
+        return "";
+    }
     unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)) }
+}
+
+// Parse "key = value" / "key value" lines from the textarea. "#" starts a
+// comment. Returns an iterator of owned (key, value) pairs, one per line.
+fn parse_solver_params(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = match raw.split('#').next() {
+            Some(s) => s.trim(),
+            None => continue,
+        };
+        if line.is_empty() {
+            continue;
+        }
+        let (k, v) = if let Some(eq) = line.find('=') {
+            (line[..eq].trim(), line[eq + 1..].trim())
+        } else if let Some(ws) = line.find(char::is_whitespace) {
+            (line[..ws].trim(), line[ws..].trim())
+        } else {
+            (line, "")
+        };
+        if k.is_empty() {
+            continue;
+        }
+        out.push((k.to_string(), v.to_string()));
+    }
+    out
+}
+
+// Apply `key = value` lines to a raw HiGHS instance using the generic
+// Highs_setOptionValue setter (HiGHS parses the string per the registered
+// option type). Returns an error listing the first bad key.
+unsafe fn apply_highs_params(highs: *mut std::os::raw::c_void, text: &str) -> Result<(), String> {
+    use lio_highs::ffi::Highs_setOptionValue;
+    use std::ffi::CString;
+    for (k, v) in parse_solver_params(text) {
+        let c_key = CString::new(k.as_bytes()).map_err(|_| format!("invalid option name: {}", k))?;
+        let c_val = CString::new(v.as_bytes()).map_err(|_| format!("invalid option value for {}: {:?}", k, v))?;
+        let status = unsafe { Highs_setOptionValue(highs, c_key.as_ptr(), c_val.as_ptr()) };
+        if status != 0 {
+            return Err(format!("HiGHS rejected parameter '{}' = '{}' (status {})", k, v, status));
+        }
+    }
+    Ok(())
+}
+
+// Write params to a VFS temp file and call SCIPreadParams so SCIP does the
+// per-type dispatch itself.
+unsafe fn apply_scip_params(scip: *mut scip_sys::SCIP, text: &str) -> Result<(), String> {
+    use std::ffi::CString;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let path = "/tmp/mipviz_scip_params.set";
+    std::fs::write(path, text).map_err(|e| format!("failed to stage SCIP params: {}", e))?;
+    let c_path = CString::new(path).unwrap();
+    let ret = unsafe { scip_sys::SCIPreadParams(scip, c_path.as_ptr()) };
+    let _ = std::fs::remove_file(path);
+    if ret != scip_sys::SCIP_Retcode_SCIP_OKAY {
+        return Err(format!("SCIP rejected parameters (SCIPreadParams code {})", ret));
+    }
+    Ok(())
 }
 
 // --- Parse model (numnom, pure in-memory, no filesystem needed) ---
@@ -219,9 +285,12 @@ pub extern "C" fn mipviz_solve_constraint_subset(
     indices_ptr: *const u8,
     indices_len: usize,
     lp_mode: i32,
+    params_ptr: *const u8,
+    params_len: usize,
 ) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
     let indices_json = unsafe { read_str(indices_ptr, indices_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
 
     let indices: Vec<usize> = match serde_json::from_str(indices_json) {
         Ok(v) => v,
@@ -231,7 +300,7 @@ pub extern "C" fn mipviz_solve_constraint_subset(
         }
     };
 
-    match mipviz::solve_constraint_subset(path, &indices, lp_mode != 0) {
+    match mipviz::solve_constraint_subset(path, &indices, lp_mode != 0, params) {
         Ok(resp) => {
             set_result(serde_json::to_string(&resp).unwrap());
             0
@@ -344,17 +413,26 @@ pub extern "C" fn mipviz_get_symmetry_scip(
 pub extern "C" fn mipviz_solve_mip(
     path_ptr: *const u8,
     path_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
 ) -> i32 {
     use lio_highs::ffi::*;
     use std::ffi::CString;
 
     let path = unsafe { read_str(path_ptr, path_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
     let c_path = CString::new(path).unwrap();
 
     unsafe {
         let highs = Highs_create();
         Highs_setCallback(highs, Some(log_callback), std::ptr::null_mut());
         Highs_startCallback(highs, kHighsCallbackLogging);
+
+        if let Err(e) = apply_highs_params(highs, params) {
+            set_error(e);
+            Highs_destroy(highs);
+            return 1;
+        }
 
         let status = Highs_readModel(highs, c_path.as_ptr());
         if status != 0 {
@@ -441,10 +519,13 @@ unsafe extern "C" fn scip_message_callback(
 pub extern "C" fn mipviz_solve_mip_scip(
     path_ptr: *const u8,
     path_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
 ) -> i32 {
     use std::ffi::CString;
 
     let path = unsafe { read_str(path_ptr, path_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
     let c_path = CString::new(path).unwrap();
 
     unsafe {
@@ -467,6 +548,12 @@ pub extern "C" fn mipviz_solve_mip_scip(
         );
         scip_sys::SCIPsetMessagehdlr(scip, messagehdlr);
         scip_sys::SCIPmessagehdlrRelease(&mut messagehdlr);
+
+        if let Err(e) = apply_scip_params(scip, params) {
+            set_error(e);
+            scip_sys::SCIPfree(&mut scip);
+            return 1;
+        }
 
         let ret = scip_sys::SCIPreadProb(scip, c_path.as_ptr(), std::ptr::null());
         if ret != scip_sys::SCIP_Retcode_SCIP_OKAY {
@@ -559,11 +646,14 @@ pub extern "C" fn mipviz_solve_root_lp(
     presolved: i32,
     solver_ptr: *const u8,
     solver_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
 ) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
     let solver = unsafe { read_str(solver_ptr, solver_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
 
-    match mipviz::solve_root_lp(path, presolved != 0, solver) {
+    match mipviz::solve_root_lp(path, presolved != 0, solver, params) {
         Ok(resp) => {
             set_result(serde_json::to_string(&resp).unwrap());
             0
@@ -588,10 +678,13 @@ pub extern "C" fn mipviz_solve_lp_with_extra_rows(
     solver_len: usize,
     rows_json_ptr: *const u8,
     rows_json_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
 ) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
     let solver = unsafe { read_str(solver_ptr, solver_len) };
     let rows_json = unsafe { read_str(rows_json_ptr, rows_json_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
     let rows: Vec<mipviz::ExtraRow> = match serde_json::from_str(rows_json) {
         Ok(r) => r,
         Err(e) => {
@@ -599,7 +692,7 @@ pub extern "C" fn mipviz_solve_lp_with_extra_rows(
             return 1;
         }
     };
-    match mipviz::solve_lp_with_extra_rows(path, presolved != 0, solver, &rows) {
+    match mipviz::solve_lp_with_extra_rows(path, presolved != 0, solver, &rows, params) {
         Ok(resp) => {
             set_result(serde_json::to_string(&resp).unwrap());
             0

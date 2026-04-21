@@ -111,7 +111,7 @@ const API = (() => {
         return result;
     }
 
-    async function solveRootLp(file, presolved, solver) {
+    async function solveRootLp(file, presolved, solver, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
         if (file.name.endsWith('.gz')) {
@@ -122,11 +122,14 @@ const API = (() => {
 
         const pathStr = writeString(path);
         const solverStr = writeString(solver || 'highs');
+        const paramsStr = writeString(params || '');
         const status = Module._mipviz_solve_root_lp(
-            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len
+            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len,
+            paramsStr.ptr, paramsStr.len
         );
         freeStr(pathStr);
         freeStr(solverStr);
+        freeStr(paramsStr);
 
         const result = readResult();
         if (status !== 0) throw new Error(result.error || 'LP solve failed');
@@ -141,7 +144,7 @@ const API = (() => {
      *   - true,"scip": SCIP presolve (matches modelData when SCIP solver is selected).
      * extraRows: [{lower: number|null, upper: number|null, coeffs: [[col, coef], …]}, …]
      */
-    async function solveLpWithExtraRows(file, presolved, solver, extraRows) {
+    async function solveLpWithExtraRows(file, presolved, solver, extraRows, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
         if (file.name.endsWith('.gz')) {
@@ -153,19 +156,22 @@ const API = (() => {
         const pathStr = writeString(path);
         const solverStr = writeString(solver || 'highs');
         const rowsJson = writeString(JSON.stringify(extraRows));
+        const paramsStr = writeString(params || '');
         const status = Module._mipviz_solve_lp_with_extra_rows(
-            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len, rowsJson.ptr, rowsJson.len
+            pathStr.ptr, pathStr.len, presolved ? 1 : 0, solverStr.ptr, solverStr.len,
+            rowsJson.ptr, rowsJson.len, paramsStr.ptr, paramsStr.len
         );
         freeStr(pathStr);
         freeStr(solverStr);
         freeStr(rowsJson);
+        freeStr(paramsStr);
 
         const result = readResult();
         if (status !== 0) throw new Error(result.error || 'LP solve with extra rows failed');
         return result;
     }
 
-    async function solveConstraintSubset(file, indices, lpMode) {
+    async function solveConstraintSubset(file, indices, lpMode, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
         if (file.name.endsWith('.gz')) {
@@ -176,11 +182,14 @@ const API = (() => {
 
         const pathStr = writeString(path);
         const indicesJson = writeString(JSON.stringify(indices));
+        const paramsStr = writeString(params || '');
         const status = Module._mipviz_solve_constraint_subset(
-            pathStr.ptr, pathStr.len, indicesJson.ptr, indicesJson.len, lpMode ? 1 : 0
+            pathStr.ptr, pathStr.len, indicesJson.ptr, indicesJson.len, lpMode ? 1 : 0,
+            paramsStr.ptr, paramsStr.len
         );
         freeStr(pathStr);
         freeStr(indicesJson);
+        freeStr(paramsStr);
 
         const result = readResult();
         if (status !== 0) throw new Error(result.error || 'Constraint subset solve failed');

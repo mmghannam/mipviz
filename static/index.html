@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css"/>
-    <link rel="stylesheet" href="./style.css?v=66">
+    <link rel="stylesheet" href="./style.css?v=67">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -96,6 +96,22 @@
                     <button class="solver-option" data-solver="highs">
                         <img src="highs-logo.png" alt="HiGHS" class="solver-logo">HiGHS
                     </button>
+                    <button class="solver-settings-btn" id="solver-settings-btn" title="Solver parameters" aria-label="Solver parameters">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    </button>
+                </div>
+                <div id="solver-settings-popover" class="solver-settings-popover hidden">
+                    <div class="solver-settings-header">
+                        <span id="solver-settings-title">Solver parameters</span>
+                        <a id="solver-settings-docs" class="solver-settings-docs" target="_blank" rel="noopener noreferrer">docs &#8599;</a>
+                        <button class="solver-settings-close" id="solver-settings-close" aria-label="Close">&times;</button>
+                    </div>
+                    <textarea id="solver-settings-text" class="solver-settings-text" spellcheck="false" autocomplete="off"></textarea>
+                    <div class="solver-settings-actions">
+                        <span class="solver-settings-hint" id="solver-settings-hint"></span>
+                        <button class="btn-ghost solver-settings-clear" id="solver-settings-clear">Clear</button>
+                        <button class="btn-ghost solver-settings-save" id="solver-settings-save">Save</button>
+                    </div>
                 </div>
             </div>
             <div class="results-actions">
@@ -233,7 +249,7 @@
     <script src="./api.js?v=3"></script>
     <script src="./marked.min.js"></script>
     <script src="./nav-search.js?v=2"></script>
-    <script src="./app.js?v=52"></script>
+    <script src="./app.js?v=54"></script>
     <script src="./dirpicker.js?v=1"></script>
     <script src="./lagrangian.js?v=7"></script>
     <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>

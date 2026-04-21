@@ -7,6 +7,91 @@ use model::{
 };
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+/// Parse `key = value` / `key value` lines from the textarea. `#` starts a
+/// comment. Skips blank lines.
+fn parse_param_lines(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = match raw.split('#').next() {
+            Some(s) => s.trim(),
+            None => continue,
+        };
+        if line.is_empty() {
+            continue;
+        }
+        let (k, v) = if let Some(eq) = line.find('=') {
+            (line[..eq].trim(), line[eq + 1..].trim())
+        } else if let Some(ws) = line.find(char::is_whitespace) {
+            (line[..ws].trim(), line[ws..].trim())
+        } else {
+            (line, "")
+        };
+        if k.is_empty() {
+            continue;
+        }
+        out.push((k.to_string(), v.to_string()));
+    }
+    out
+}
+
+/// Apply user-supplied HiGHS options to a `lio_highs::Model`. We don't get
+/// direct access to the raw pointer (`HighsOptionValue` is sealed), so we
+/// guess a type from the value string and try typed setters in order.
+/// `Model::set_option` panics on a wrong-type rejection, so each attempt is
+/// wrapped in `catch_unwind`. Returns an error listing any keys all attempts
+/// rejected.
+fn apply_highs_options(model: &mut lio_highs::Model, text: &str) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    // Suppress panic messages from the rejected typed attempts.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    enum Typed { Bool(bool), Int(i32), Float(f64), Str }
+    let mut failed: Vec<String> = Vec::new();
+    for (k, v) in parse_param_lines(text) {
+        let lower = v.to_ascii_lowercase();
+        let order: Vec<Typed> = if matches!(lower.as_str(), "true" | "false" | "on" | "off" | "yes" | "no") {
+            vec![Typed::Bool(matches!(lower.as_str(), "true" | "on" | "yes")), Typed::Str]
+        } else if let Ok(n) = v.parse::<i32>() {
+            vec![Typed::Int(n), Typed::Float(n as f64), Typed::Str]
+        } else if let Ok(f) = v.parse::<f64>() {
+            vec![Typed::Float(f), Typed::Str]
+        } else {
+            vec![Typed::Str]
+        };
+
+        let mut ok = false;
+        for ty in order {
+            let k_clone = k.clone();
+            let v_clone = v.clone();
+            let result = catch_unwind(AssertUnwindSafe(|| match ty {
+                Typed::Bool(b) => model.set_option(k_clone, b),
+                Typed::Int(n) => model.set_option(k_clone, n),
+                Typed::Float(f) => model.set_option(k_clone, f),
+                Typed::Str => model.set_option(k_clone.as_bytes(), v_clone.as_bytes()),
+            }));
+            if result.is_ok() {
+                ok = true;
+                break;
+            }
+        }
+        if !ok {
+            failed.push(format!("{} = {}", k, v));
+        }
+    }
+
+    std::panic::set_hook(prev_hook);
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("HiGHS rejected parameter(s): {}", failed.join("; ")))
+    }
+}
 
 fn build_model_response(
     variables: Vec<Variable>,
@@ -723,6 +808,7 @@ fn extract_scip_presolved_lp_data(path: &str) -> Result<PresolvedLpData, String>
 fn solve_continuous_lp_from_data(
     data: &PresolvedLpData,
     extra_rows: &[ExtraRow],
+    params: &str,
 ) -> Result<model::LpSolutionResponse, String> {
     use lio_highs::{ColProblem, LikeModel, Model};
     const HIGHS_INF: f64 = 1e30;
@@ -730,6 +816,7 @@ fn solve_continuous_lp_from_data(
     let mut lp = Model::new::<ColProblem>(ColProblem::default());
     lp.make_quiet();
     lp.set_sense(data.sense);
+    apply_highs_options(&mut lp, params)?;
 
     for i in 0..data.num_cols {
         lp.add_col(
@@ -769,17 +856,19 @@ pub fn solve_root_lp(
     path: &str,
     presolved: bool,
     solver: &str,
+    params: &str,
 ) -> Result<model::LpSolutionResponse, String> {
     use lio_highs::{ColProblem, LikeModel, Model};
 
     if presolved && solver == "scip" {
         let data = extract_scip_presolved_lp_data(path)?;
-        return solve_continuous_lp_from_data(&data, &[]);
+        return solve_continuous_lp_from_data(&data, &[], params);
     }
 
     let mut model = Model::new::<ColProblem>(ColProblem::default());
     model.make_quiet();
     model.read(path);
+    apply_highs_options(&mut model, params)?;
 
     if !presolved {
         // Relax all integer/binary variables to continuous and solve
@@ -818,6 +907,7 @@ pub fn solve_root_lp(
         let mut lp = Model::new::<ColProblem>(ColProblem::default());
         lp.make_quiet();
         lp.set_sense(sense);
+        apply_highs_options(&mut lp, params)?;
 
         // Add columns (all continuous)
         for i in 0..num_cols {
@@ -869,19 +959,21 @@ pub fn solve_lp_with_extra_rows(
     presolved: bool,
     solver: &str,
     extra_rows: &[ExtraRow],
+    params: &str,
 ) -> Result<model::LpSolutionResponse, String> {
     use lio_highs::{ColProblem, LikeModel, Model};
     const HIGHS_INF: f64 = 1e30;
 
     if presolved && solver == "scip" {
         let data = extract_scip_presolved_lp_data(path)?;
-        return solve_continuous_lp_from_data(&data, extra_rows);
+        return solve_continuous_lp_from_data(&data, extra_rows, params);
     }
 
     if !presolved {
         let mut model = Model::new::<ColProblem>(ColProblem::default());
         model.make_quiet();
         model.read(path);
+        apply_highs_options(&mut model, params)?;
 
         let num_cols = model.num_cols();
         for i in 0..num_cols {
@@ -926,6 +1018,7 @@ pub fn solve_lp_with_extra_rows(
     let mut lp = Model::new::<ColProblem>(ColProblem::default());
     lp.make_quiet();
     lp.set_sense(sense);
+    apply_highs_options(&mut lp, params)?;
 
     for i in 0..num_cols {
         lp.add_col(col_cost[i], col_lower[i]..=col_upper[i], std::iter::empty::<(usize, f64)>());
@@ -960,12 +1053,14 @@ pub fn solve_constraint_subset(
     path: &str,
     keep_indices: &[usize],
     lp_mode: bool,
+    params: &str,
 ) -> Result<model::LpSolutionResponse, String> {
     use lio_highs::{ColProblem, LikeModel, Model};
 
     let mut model = Model::new::<ColProblem>(ColProblem::default());
     model.make_quiet();
     model.read(path);
+    apply_highs_options(&mut model, params)?;
 
     let num_rows = model.num_rows();
     let keep_set: std::collections::HashSet<usize> = keep_indices.iter().copied().collect();
@@ -1498,7 +1593,7 @@ ENDATA
         let path = "/tmp/test_single_cons.mps";
         std::fs::write(path, mps).unwrap();
 
-        let result = solve_constraint_subset(path, &[0], true).unwrap();
+        let result = solve_constraint_subset(path, &[0], true, "").unwrap();
         eprintln!("Status: {}", result.status);
         eprintln!("Obj: {}", result.objective_value);
         eprintln!("Col values: {:?}", result.col_values);
@@ -1526,7 +1621,7 @@ ENDATA
             let c = &model_data.constraints[idx];
             eprintln!("Testing constraint {} (idx {}): {} terms, rhs={:?}",
                 c.name, idx, c.terms.len(), c.lower);
-            let result = solve_constraint_subset(path, &[idx], true).unwrap();
+            let result = solve_constraint_subset(path, &[idx], true, "").unwrap();
             eprintln!("Status: {}, Obj: {}", result.status, result.objective_value);
             let nz: Vec<_> = c.terms.iter()
                 .filter(|t| result.col_values[t.var_index].abs() > 1e-10)
