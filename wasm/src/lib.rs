@@ -272,6 +272,29 @@ pub extern "C" fn mipviz_get_reductions(
     }
 }
 
+// --- Get presolve reductions (cub via Emscripten FS) ---
+
+/// Get presolve reduction details from cub. File must be on Emscripten FS.
+/// Returns 0 on success, 1 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn mipviz_get_reductions_cub(
+    path_ptr: *const u8,
+    path_len: usize,
+) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+
+    match mipviz::extract_reductions_cub(path) {
+        Ok(resp) => {
+            set_result(serde_json::to_string(&resp).unwrap());
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            1
+        }
+    }
+}
+
 // --- Solve constraint subset relaxation ---
 
 /// Solve relaxation keeping only specified constraints. File must be on Emscripten FS.
@@ -478,6 +501,157 @@ pub extern "C" fn mipviz_solve_mip(
     }
 }
 
+// --- Extract HiGHS root cuts ---
+//
+// Registers `kHighsCallbackMipGetCutPool` and runs the MIP solver. HiGHS
+// fires the callback once after the first root separation round (see
+// HighsMipSolverData.cpp). We snapshot the cut pool, then set
+// `user_interrupt = 1` so the solve returns cleanly without doing B&B.
+//
+// HiGHS internal presolve is disabled so the cut indices reference the
+// original column space of the model the user loaded.
+
+struct RootCutPool {
+    num_col: i32,
+    num_cut: i32,
+    starts: Vec<i32>,   // length num_cut + 1
+    indices: Vec<i32>,  // length nnz
+    values: Vec<f64>,   // length nnz
+    lower: Vec<f64>,    // length num_cut
+    upper: Vec<f64>,    // length num_cut
+}
+
+static ROOT_CUT_POOL: Mutex<Option<RootCutPool>> = Mutex::new(None);
+
+unsafe extern "C" fn root_cut_callback(
+    callback_type: c_int,
+    message: *const c_char,
+    data_out: *const lio_highs::ffi::HighsCallbackDataOut,
+    data_in: *mut lio_highs::ffi::HighsCallbackDataIn,
+    _user_data: *mut c_void,
+) {
+    use lio_highs::ffi::*;
+    if callback_type == kHighsCallbackLogging as c_int {
+        if !message.is_null() {
+            let msg = unsafe { std::ffi::CStr::from_ptr(message) }.to_bytes();
+            unsafe { js_on_log(msg.as_ptr(), msg.len()) };
+        }
+        return;
+    }
+    if callback_type != kHighsCallbackMipGetCutPool as c_int || data_out.is_null() {
+        return;
+    }
+    let d = unsafe { &*data_out };
+    let num_cut = d.cutpool_num_cut as usize;
+    if num_cut > 0 {
+        let nnz = d.cutpool_num_nz as usize;
+        let starts = unsafe { std::slice::from_raw_parts(d.cutpool_start, num_cut + 1) }.to_vec();
+        let indices = unsafe { std::slice::from_raw_parts(d.cutpool_index, nnz) }.to_vec();
+        let values = unsafe { std::slice::from_raw_parts(d.cutpool_value, nnz) }.to_vec();
+        let lower = unsafe { std::slice::from_raw_parts(d.cutpool_lower, num_cut) }.to_vec();
+        let upper = unsafe { std::slice::from_raw_parts(d.cutpool_upper, num_cut) }.to_vec();
+        *ROOT_CUT_POOL.lock().unwrap() = Some(RootCutPool {
+            num_col: d.cutpool_num_col,
+            num_cut: d.cutpool_num_cut,
+            starts,
+            indices,
+            values,
+            lower,
+            upper,
+        });
+    }
+    if !data_in.is_null() {
+        unsafe { (*data_in).user_interrupt = 1 };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn mipviz_get_root_cuts(
+    path_ptr: *const u8,
+    path_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
+) -> i32 {
+    use lio_highs::ffi::*;
+    use std::ffi::CString;
+
+    let path = unsafe { read_str(path_ptr, path_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
+    let c_path = CString::new(path).unwrap();
+
+    *ROOT_CUT_POOL.lock().unwrap() = None;
+
+    unsafe {
+        let highs = Highs_create();
+        Highs_setCallback(highs, Some(root_cut_callback), std::ptr::null_mut());
+        Highs_startCallback(highs, kHighsCallbackLogging);
+        Highs_startCallback(highs, kHighsCallbackMipGetCutPool);
+
+        // Cut indices come back in whichever column space HiGHS solves on.
+        // Disable internal presolve so they match the loaded model.
+        let off_key = CString::new("presolve").unwrap();
+        let off_val = CString::new("off").unwrap();
+        Highs_setOptionValue(highs, off_key.as_ptr(), off_val.as_ptr());
+
+        if let Err(e) = apply_highs_params(highs, params) {
+            set_error(e);
+            Highs_destroy(highs);
+            return 1;
+        }
+
+        let status = Highs_readModel(highs, c_path.as_ptr());
+        if status != 0 {
+            set_error(format!("Failed to read model (status {})", status));
+            Highs_destroy(highs);
+            return status;
+        }
+
+        let _ = Highs_run(highs);
+        Highs_destroy(highs);
+    }
+
+    let pool = ROOT_CUT_POOL.lock().unwrap().take();
+    let pool = match pool {
+        Some(p) => p,
+        None => {
+            set_result(
+                serde_json::json!({ "num_cuts": 0, "num_cols": 0, "cuts": [] }).to_string(),
+            );
+            return 0;
+        }
+    };
+
+    let num_cut = pool.num_cut as usize;
+    let mut cuts = Vec::with_capacity(num_cut);
+    for i in 0..num_cut {
+        let lo = pool.starts[i] as usize;
+        let hi = pool.starts[i + 1] as usize;
+        let coeffs: Vec<serde_json::Value> = (lo..hi)
+            .map(|k| serde_json::json!([pool.indices[k], pool.values[k]]))
+            .collect();
+        let to_finite = |v: f64| {
+            if v.is_finite() && v.abs() < 1e30 {
+                serde_json::json!(v)
+            } else {
+                serde_json::Value::Null
+            }
+        };
+        cuts.push(serde_json::json!({
+            "lower": to_finite(pool.lower[i]),
+            "upper": to_finite(pool.upper[i]),
+            "coeffs": coeffs,
+        }));
+    }
+
+    let resp = serde_json::json!({
+        "num_cuts": pool.num_cut,
+        "num_cols": pool.num_col,
+        "cuts": cuts,
+    });
+    set_result(resp.to_string());
+    0
+}
+
 // --- Solve MIP (SCIP via raw FFI with logging) ---
 
 static SCIP_LOG_BUF: Mutex<Vec<u8>> = Mutex::new(Vec::new());
@@ -630,6 +804,240 @@ pub extern "C" fn mipviz_solve_mip_scip(
         set_result(resp.to_string());
         0
     }
+}
+
+// --- Extract SCIP root cuts ---
+//
+// Registers an event handler on SCIP_EVENTTYPE_NODEFOCUSED. When the focus
+// node has depth > 0, root processing is fully done — we drain LP rows of
+// origin SEPA into a static buffer, then SCIPinterruptSolve. Presolve is
+// disabled so column indices match the loaded model.
+
+const SCIP_EVENTTYPE_NODEFOCUSED: u64 = 0x000040000;
+const SCIP_EVENTTYPE_NODEFEASIBLE: u64 = 0x000080000;
+const SCIP_EVENTTYPE_NODEINFEASIBLE: u64 = 0x000100000;
+const SCIP_EVENTTYPE_NODEBRANCHED: u64 = 0x000200000;
+const SCIP_EVENTTYPE_NODESOLVED: u64 =
+    SCIP_EVENTTYPE_NODEFEASIBLE | SCIP_EVENTTYPE_NODEINFEASIBLE | SCIP_EVENTTYPE_NODEBRANCHED;
+const SCIP_ROWORIGINTYPE_SEPA: u32 = 3;
+
+struct ScipRootCut {
+    lower: f64,
+    upper: f64,
+    coeffs: Vec<(i32, f64)>, // (probindex, coef)
+    separator: String,       // e.g. "gomory", "mir", "" if no separator pointer
+    name: String,            // SCIP's row name
+    rank: i32,               // Chvátal-Gomory-style rank
+    is_local: bool,
+}
+
+struct ScipRootCuts {
+    num_cols: i32,
+    infinity: f64,
+    cuts: Vec<ScipRootCut>,
+}
+
+static SCIP_ROOT_CUTS: Mutex<Option<ScipRootCuts>> = Mutex::new(None);
+
+unsafe extern "C" fn scip_root_cut_eventexec(
+    scip: *mut scip_sys::SCIP,
+    _eventhdlr: *mut scip_sys::SCIP_EVENTHDLR,
+    _event: *mut scip_sys::SCIP_EVENT,
+    _eventdata: *mut scip_sys::SCIP_EVENTDATA,
+) -> scip_sys::SCIP_RETCODE {
+    unsafe {
+        // Capture once. The first NODEFOCUSED on the root fires before any
+        // LP exists (nrows == 0), so gate on having LP rows. Later events —
+        // NODEFOCUSED on a child (depth > 0, root just branched) or
+        // NODESOLVED on root — see the post-separation LP.
+        let node = scip_sys::SCIPgetCurrentNode(scip);
+        if node.is_null() {
+            return scip_sys::SCIP_Retcode_SCIP_OKAY;
+        }
+        if SCIP_ROOT_CUTS.lock().unwrap().is_some() {
+            return scip_sys::SCIP_Retcode_SCIP_OKAY;
+        }
+
+        let num_cols = scip_sys::SCIPgetNVars(scip);
+        let mut rows_ptr: *mut *mut scip_sys::SCIP_ROW = std::ptr::null_mut();
+        let mut nrows: i32 = 0;
+        let ret = scip_sys::SCIPgetLPRowsData(scip, &mut rows_ptr, &mut nrows);
+        if ret != scip_sys::SCIP_Retcode_SCIP_OKAY || nrows == 0 {
+            return scip_sys::SCIP_Retcode_SCIP_OKAY;
+        }
+        let rows = std::slice::from_raw_parts(rows_ptr, nrows as usize);
+
+        let mut cuts: Vec<ScipRootCut> = Vec::new();
+        for &row in rows {
+            if scip_sys::SCIProwGetOrigintype(row) != SCIP_ROWORIGINTYPE_SEPA {
+                continue;
+            }
+            let nnz = scip_sys::SCIProwGetNNonz(row);
+            let cols = std::slice::from_raw_parts(scip_sys::SCIProwGetCols(row), nnz as usize);
+            let vals = std::slice::from_raw_parts(scip_sys::SCIProwGetVals(row), nnz as usize);
+            let constant = scip_sys::SCIProwGetConstant(row);
+            let lhs = scip_sys::SCIProwGetLhs(row) - constant;
+            let rhs = scip_sys::SCIProwGetRhs(row) - constant;
+
+            let mut coeffs = Vec::with_capacity(nnz as usize);
+            for i in 0..nnz as usize {
+                let var = scip_sys::SCIPcolGetVar(cols[i]);
+                if var.is_null() {
+                    continue;
+                }
+                let pi = scip_sys::SCIPvarGetProbindex(var);
+                if pi < 0 {
+                    continue;
+                }
+                coeffs.push((pi, vals[i]));
+            }
+
+            let read_cstr = |p: *const std::os::raw::c_char| -> String {
+                if p.is_null() { return String::new(); }
+                std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+            };
+            let sepa_ptr = scip_sys::SCIProwGetOriginSepa(row);
+            let separator = if sepa_ptr.is_null() {
+                String::new()
+            } else {
+                read_cstr(scip_sys::SCIPsepaGetName(sepa_ptr))
+            };
+            let name = read_cstr(scip_sys::SCIProwGetName(row));
+            let rank = scip_sys::SCIProwGetRank(row);
+            let is_local = scip_sys::SCIProwIsLocal(row) != 0;
+
+            cuts.push(ScipRootCut {
+                lower: lhs, upper: rhs, coeffs,
+                separator, name, rank, is_local,
+            });
+        }
+
+        let infinity = scip_sys::SCIPinfinity(scip);
+        *SCIP_ROOT_CUTS.lock().unwrap() = Some(ScipRootCuts { num_cols, infinity, cuts });
+        let _ = scip_sys::SCIPinterruptSolve(scip);
+    }
+    scip_sys::SCIP_Retcode_SCIP_OKAY
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn mipviz_get_root_cuts_scip(
+    path_ptr: *const u8,
+    path_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
+) -> i32 {
+    use std::ffi::CString;
+
+    let path = unsafe { read_str(path_ptr, path_len) };
+    let params = unsafe { read_str(params_ptr, params_len) };
+    let c_path = CString::new(path).unwrap();
+
+    *SCIP_ROOT_CUTS.lock().unwrap() = None;
+
+    unsafe {
+        let mut scip: *mut scip_sys::SCIP = std::ptr::null_mut();
+        scip_sys::SCIPcreate(&mut scip);
+        scip_sys::SCIPincludeDefaultPlugins(scip);
+
+        // Forward SCIP logs to JS
+        let mut messagehdlr: *mut scip_sys::SCIP_MESSAGEHDLR = std::ptr::null_mut();
+        scip_sys::SCIPmessagehdlrCreate(
+            &mut messagehdlr, 0, std::ptr::null(), 0,
+            Some(scip_message_callback), Some(scip_message_callback), Some(scip_message_callback),
+            None, std::ptr::null_mut(),
+        );
+        scip_sys::SCIPsetMessagehdlr(scip, messagehdlr);
+        scip_sys::SCIPmessagehdlrRelease(&mut messagehdlr);
+
+        // Disable presolve so column indices match the loaded model.
+        let key = CString::new("presolving/maxrounds").unwrap();
+        scip_sys::SCIPsetIntParam(scip, key.as_ptr(), 0);
+        let key = CString::new("presolving/maxrestarts").unwrap();
+        scip_sys::SCIPsetIntParam(scip, key.as_ptr(), 0);
+
+        if let Err(e) = apply_scip_params(scip, params) {
+            set_error(e);
+            scip_sys::SCIPfree(&mut scip);
+            return 1;
+        }
+
+        let ret = scip_sys::SCIPreadProb(scip, c_path.as_ptr(), std::ptr::null());
+        if ret != scip_sys::SCIP_Retcode_SCIP_OKAY {
+            set_error(format!("SCIP failed to read problem (code {})", ret));
+            scip_sys::SCIPfree(&mut scip);
+            return 1;
+        }
+
+        // Register the root-cut event handler. We need it included before
+        // SCIPsolve transforms the problem so SCIPcatchEvent has somewhere
+        // to attach. Use SCIPincludeEventhdlrBasic + SCIPcatchEvent.
+        let hdlr_name = CString::new("rootcuts").unwrap();
+        let hdlr_desc = CString::new("captures root cuts then interrupts").unwrap();
+        let mut eventhdlr: *mut scip_sys::SCIP_EVENTHDLR = std::ptr::null_mut();
+        scip_sys::SCIPincludeEventhdlrBasic(
+            scip, &mut eventhdlr, hdlr_name.as_ptr(), hdlr_desc.as_ptr(),
+            Some(scip_root_cut_eventexec), std::ptr::null_mut(),
+        );
+        // SCIPcatchEvent requires SCIP to be at least in TRANSFORMING; it's
+        // legal here since SCIPreadProb leaves us in PROBLEM and we'll
+        // immediately enter SCIPsolve. Defer catch via initsol callback —
+        // simpler: catch right before solve via SCIPtransformProb then catch.
+        scip_sys::SCIPtransformProb(scip);
+        scip_sys::SCIPcatchEvent(
+            scip, SCIP_EVENTTYPE_NODEFOCUSED | SCIP_EVENTTYPE_NODESOLVED, eventhdlr,
+            std::ptr::null_mut(), std::ptr::null_mut(),
+        );
+
+        let _ = scip_sys::SCIPsolve(scip);
+
+        // Flush any remaining log buffer
+        {
+            let mut buf = SCIP_LOG_BUF.lock().unwrap();
+            if !buf.is_empty() {
+                js_on_log(buf.as_ptr(), buf.len());
+                buf.clear();
+            }
+        }
+
+        scip_sys::SCIPfree(&mut scip);
+    }
+
+    let captured = SCIP_ROOT_CUTS.lock().unwrap().take();
+    let captured = match captured {
+        Some(v) => v,
+        None => {
+            set_result(
+                serde_json::json!({ "num_cuts": 0, "num_cols": 0, "cuts": [] }).to_string(),
+            );
+            return 0;
+        }
+    };
+
+    let inf = captured.infinity;
+    let to_finite = |v: f64| {
+        if v.is_finite() && v.abs() < inf { serde_json::json!(v) } else { serde_json::Value::Null }
+    };
+    let cuts_json: Vec<serde_json::Value> = captured.cuts.iter().map(|c| {
+        let coeffs: Vec<serde_json::Value> = c.coeffs.iter()
+            .map(|&(i, v)| serde_json::json!([i, v])).collect();
+        serde_json::json!({
+            "lower": to_finite(c.lower),
+            "upper": to_finite(c.upper),
+            "coeffs": coeffs,
+            "separator": if c.separator.is_empty() { serde_json::Value::Null } else { serde_json::json!(c.separator) },
+            "name": if c.name.is_empty() { serde_json::Value::Null } else { serde_json::json!(c.name) },
+            "rank": c.rank,
+            "is_local": c.is_local,
+        })
+    }).collect();
+
+    let resp = serde_json::json!({
+        "num_cuts": captured.cuts.len(),
+        "num_cols": captured.num_cols,
+        "cuts": cuts_json,
+    });
+    set_result(resp.to_string());
+    0
 }
 
 // --- Solve root LP (HiGHS via Emscripten FS) ---

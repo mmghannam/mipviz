@@ -111,6 +111,24 @@ const API = (() => {
         return result;
     }
 
+    async function getReductionsCub(file) {
+        await ensureReady();
+        let buffer = await file.arrayBuffer();
+        if (file.name.endsWith('.gz')) {
+            const text = await decompressGzip(buffer);
+            buffer = new TextEncoder().encode(text).buffer;
+        }
+        const path = writeToVFS(buffer, 'input.mps');
+
+        const pathStr = writeString(path);
+        const status = Module._mipviz_get_reductions_cub(pathStr.ptr, pathStr.len);
+        freeStr(pathStr);
+
+        const result = readResult();
+        if (status !== 0) throw new Error(result.error || 'cub reductions failed');
+        return result;
+    }
+
     async function solveRootLp(file, presolved, solver, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
@@ -239,6 +257,61 @@ const API = (() => {
         return result;
     }
 
+    /**
+     * Extract HiGHS root-node cuts: runs the MIP with internal presolve off
+     * and the cut-pool callback registered, interrupts after the first root
+     * separation round, and returns the captured cut pool.
+     * Cuts are in original-model column space (presolve is forced off).
+     * Returns: { num_cuts, num_cols, cuts: [{lower, upper, coeffs:[[col, coef], …]}, …] }
+     */
+    async function getRootCutsHighs(file, params) {
+        await ensureReady();
+        let buffer = await file.arrayBuffer();
+        if (file.name.endsWith('.gz')) {
+            const text = await decompressGzip(buffer);
+            buffer = new TextEncoder().encode(text).buffer;
+        }
+        const path = writeToVFS(buffer, 'input.mps');
+
+        const pathStr = writeString(path);
+        const paramsStr = writeString(params || '');
+        const status = Module._mipviz_get_root_cuts(
+            pathStr.ptr, pathStr.len, paramsStr.ptr, paramsStr.len
+        );
+        freeStr(pathStr);
+        freeStr(paramsStr);
+
+        const result = readResult();
+        if (status !== 0) throw new Error(result.error || 'Root-cut extraction failed');
+        return result;
+    }
+
+    /**
+     * Extract SCIP root-node cuts via a NODEFOCUSED event handler.
+     * SCIP presolve is disabled so cut indices match the loaded model.
+     */
+    async function getRootCutsScip(file, params) {
+        await ensureReady();
+        let buffer = await file.arrayBuffer();
+        if (file.name.endsWith('.gz')) {
+            const text = await decompressGzip(buffer);
+            buffer = new TextEncoder().encode(text).buffer;
+        }
+        const path = writeToVFS(buffer, 'input.mps');
+
+        const pathStr = writeString(path);
+        const paramsStr = writeString(params || '');
+        const status = Module._mipviz_get_root_cuts_scip(
+            pathStr.ptr, pathStr.len, paramsStr.ptr, paramsStr.len
+        );
+        freeStr(pathStr);
+        freeStr(paramsStr);
+
+        const result = readResult();
+        if (status !== 0) throw new Error(result.error || 'SCIP root-cut extraction failed');
+        return result;
+    }
+
     async function getSymmetry(file) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
@@ -262,11 +335,14 @@ const API = (() => {
         parseModel,
         presolveModel,
         getReductions,
+        getReductionsCub,
         getCliques,
         solveRootLp,
         solveLpWithExtraRows,
         solveConstraintSubset,
         getCliquesImplications,
         getSymmetry,
+        getRootCutsHighs,
+        getRootCutsScip,
     };
 })();

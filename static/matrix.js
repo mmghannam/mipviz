@@ -27,6 +27,8 @@
     var modelData = null;
     var reductions = [];
     var currentStep = 0;
+    var reductionSource = 'highs';   // 'highs' | 'cub'
+    var instanceFile = null;          // cached File for re-fetching reductions
     var grayedRows = {};            // row index -> true
     var grayedCols = {};            // col index -> true
     var activeRows = [];            // ordered list of visible row indices
@@ -68,12 +70,17 @@
         if (!res.ok) throw new Error('Instance not found');
         return res.blob();
     }).then(function (blob) {
-        var file = new File([blob], instanceName + '.mps.gz', { type: 'application/gzip' });
+        instanceFile = new File([blob], instanceName + '.mps.gz', { type: 'application/gzip' });
         return Promise.all([
-            API.parseModel(file),
-            API.getReductions(file).catch(function () { return { reductions: [] }; })
+            API.parseModel(instanceFile),
+            fetchReductions(instanceFile, reductionSource)
         ]);
     });
+
+    function fetchReductions(file, source) {
+        var fn = source === 'cub' ? API.getReductionsCub : API.getReductions;
+        return fn(file).catch(function () { return { reductions: [] }; });
+    }
 
     dataPromise
         .then(function (data) {
@@ -669,6 +676,30 @@
 
         document.getElementById('reduction-panel-close').addEventListener('click', function () {
             document.getElementById('reduction-panel').style.display = 'none';
+        });
+
+        // Reduction-source toggle (HiGHS / cub)
+        var sourceBtns = document.querySelectorAll('#reduction-source .source-btn');
+        sourceBtns.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var src = btn.getAttribute('data-source');
+                if (src === reductionSource || !instanceFile) return;
+                stopPlay();
+                reductionSource = src;
+                sourceBtns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+                btn.disabled = true;
+                fetchReductions(instanceFile, src).then(function (data) {
+                    reductions = data.reductions || [];
+                    resetSteps();
+                    var slider = document.getElementById('step-slider');
+                    slider.max = reductions.length;
+                    slider.value = 0;
+                    document.getElementById('step-label').textContent =
+                        'Step 0 / ' + reductions.length;
+                    document.getElementById('step-next').disabled = reductions.length === 0;
+                    btn.disabled = false;
+                });
+            });
         });
 
         // Keyboard

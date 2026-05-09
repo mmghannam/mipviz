@@ -2276,6 +2276,59 @@ body.agg-dragging * {
 .saved-row .saved-delete:hover {
     color: var(--orange);
 }
+.saved-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 0 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+}
+.saved-filter-chip {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.saved-filter-chip:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+.saved-filter-chip.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.12);
+}
+.saved-row .cut-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--accent);
+    background: rgba(99, 102, 241, 0.12);
+}
+.saved-row .cut-metrics {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.saved-row .cut-metrics.cut-metric-sep {
+    color: var(--orange, #f59e0b);
+    background: rgba(245, 158, 11, 0.12);
+}
+.saved-row .cut-metrics.cut-metric-nonsep {
+    color: var(--text-muted);
+    background: rgba(127, 127, 127, 0.08);
+}
 .saved-row .constraint-expr {
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -4109,6 +4162,43 @@ body:not(.lr-panel-open) main {
 .stepper-right {
     flex-shrink: 0;
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reduction-source {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.reduction-source .source-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border: none;
+    border-right: 1px solid var(--border);
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.reduction-source .source-btn:last-child {
+    border-right: none;
+}
+
+.reduction-source .source-btn:hover:not(.active) {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
+.reduction-source .source-btn.active {
+    color: var(--text);
+    background: var(--bg-hover);
+    font-weight: 600;
 }
 
 .step-btn {

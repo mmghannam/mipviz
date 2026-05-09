@@ -1146,6 +1146,80 @@ pub fn extract_reductions(path: &str) -> Result<ReductionsResponse, String> {
     Ok(ReductionsResponse { reductions: items })
 }
 
+/// Walk cub's `PostsolveStack` and turn each `Transform` into a
+/// `PresolveReductionItem` so the matrix-stepper can scrub through
+/// the reductions cub recorded.
+pub fn extract_reductions_cub(path: &str) -> Result<ReductionsResponse, String> {
+    use cub::{PresolveOptions, Transform, presolve, read_mps};
+
+    let model = read_mps(std::path::Path::new(path))
+        .map_err(|e| format!("cub read_mps failed: {e}"))?;
+    let (_reduced, stack) = presolve(model, &PresolveOptions::default())
+        .map_err(|e| format!("cub presolve failed: {e}"))?;
+
+    let items = stack
+        .ops
+        .iter()
+        .map(|op| match op {
+            Transform::DroppedRow { row } => PresolveReductionItem {
+                reduction_type: "DroppedRow".to_string(),
+                col: -1,
+                row: *row as i32,
+                value: 0.0,
+                source: "cub".to_string(),
+                description: format!("row {row} dropped (redundant or substituted)"),
+            },
+            Transform::FixedCol { col, value } => PresolveReductionItem {
+                reduction_type: "FixedCol".to_string(),
+                col: *col as i32,
+                row: -1,
+                value: *value,
+                source: "cub".to_string(),
+                description: format!("col {col} fixed to {value}"),
+            },
+            Transform::AffineSubst {
+                col,
+                other,
+                scale,
+                offset,
+            } => PresolveReductionItem {
+                reduction_type: "AffineSubst".to_string(),
+                col: *col as i32,
+                row: -1,
+                value: *scale,
+                source: "cub".to_string(),
+                description: format!("col {col} = {scale} · col {other} + {offset}"),
+            },
+            Transform::RowSubst { col, pivot, .. } => PresolveReductionItem {
+                reduction_type: "RowSubst".to_string(),
+                col: *col as i32,
+                row: -1,
+                value: *pivot,
+                source: "cub".to_string(),
+                description: format!("col {col} substituted via equation row (pivot {pivot})"),
+            },
+            Transform::MergeCols {
+                keeper,
+                dropped,
+                scale,
+                integer,
+                ..
+            } => PresolveReductionItem {
+                reduction_type: "MergeCols".to_string(),
+                col: *dropped as i32,
+                row: -1,
+                value: *scale,
+                source: "cub".to_string(),
+                description: format!(
+                    "col {dropped} merged into col {keeper} (scale={scale}, integer={integer})"
+                ),
+            },
+        })
+        .collect();
+
+    Ok(ReductionsResponse { reductions: items })
+}
+
 pub fn extract_cliques_implications_highs(path: &str) -> Result<CliquesImplicationsResponse, String> {
     use lio_highs::{ColProblem, ImplicationBoundType, Model};
 
