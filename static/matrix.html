@@ -56,25 +56,37 @@
             <div id="reduction-panel-body" class="reduction-panel-body"></div>
         </div>
         <div id="stepper-bar" class="stepper-bar" style="display:none">
-            <div class="stepper-top">
-                <div class="stepper-left">
-                    <button id="step-prev" class="step-btn" disabled>&larr;</button>
-                    <span id="step-label" class="step-label">Step 0 / 0</span>
-                    <button id="step-next" class="step-btn">&rarr;</button>
-                    <button id="step-play" class="step-btn step-play" title="Auto-play reductions">&#9654;</button>
-                <button id="step-fast" class="step-btn step-play" title="Fast-forward reductions">&#9654;&#9654;</button>
+            <!-- Phase 1: pick presolver and run. Visible until reductions load. -->
+            <div id="presolve-picker" class="presolve-picker">
+                <span class="presolve-label">Presolve with:</span>
+                <div id="reduction-source" class="reduction-source">
+                    <button class="source-btn active" data-source="highs">HiGHS</button>
+                    <button class="source-btn" data-source="cub">cub</button>
                 </div>
-                <div id="step-info" class="step-info"></div>
-                <div class="stepper-right">
-                    <div id="reduction-source" class="reduction-source" title="Reduction source">
-                        <button class="source-btn active" data-source="highs">HiGHS</button>
-                        <button class="source-btn" data-source="cub">cub</button>
-                    </div>
-                    <button id="step-reset" class="step-btn step-reset">Reset</button>
-                </div>
+                <button id="presolve-run-btn" class="step-btn step-reset">Run</button>
+                <span id="presolve-status" class="presolve-status"></span>
             </div>
-            <div class="stepper-slider-wrap">
-                <input type="range" id="step-slider" class="step-slider" min="0" max="0" value="0">
+
+            <!-- Phase 2: scrub through reductions. Hidden until first run. -->
+            <div id="stepper-active" style="display:none">
+                <div class="stepper-top">
+                    <div class="stepper-left">
+                        <button id="step-prev" class="step-btn" disabled>&larr;</button>
+                        <span id="step-label" class="step-label">Step 0 / 0</span>
+                        <button id="step-next" class="step-btn">&rarr;</button>
+                        <button id="step-play" class="step-btn step-play" title="Auto-play reductions">&#9654;</button>
+                        <button id="step-fast" class="step-btn step-play" title="Fast-forward reductions">&#9654;&#9654;</button>
+                    </div>
+                    <div id="step-info" class="step-info"></div>
+                    <div class="stepper-right">
+                        <span id="stepper-source-label" class="presolve-status"></span>
+                        <button id="step-reset" class="step-btn step-reset">Reset</button>
+                        <button id="presolve-reopen-btn" class="step-btn" title="Pick a different presolver">Re-run…</button>
+                    </div>
+                </div>
+                <div class="stepper-slider-wrap">
+                    <input type="range" id="step-slider" class="step-slider" min="0" max="0" value="0">
+                </div>
             </div>
         </div>
     </div>

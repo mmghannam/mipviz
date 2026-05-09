@@ -4167,6 +4167,25 @@ body:not(.lr-panel-open) main {
     gap: 8px;
 }
 
+.presolve-picker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 4px;
+}
+
+.presolve-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.presolve-status {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 .reduction-source {
     display: inline-flex;
     border: 1px solid var(--border);

@@ -71,21 +71,17 @@
         return res.blob();
     }).then(function (blob) {
         instanceFile = new File([blob], instanceName + '.mps.gz', { type: 'application/gzip' });
-        return Promise.all([
-            API.parseModel(instanceFile),
-            fetchReductions(instanceFile, reductionSource)
-        ]);
+        return API.parseModel(instanceFile);
     });
 
     function fetchReductions(file, source) {
         var fn = source === 'cub' ? API.getReductionsCub : API.getReductions;
-        return fn(file).catch(function () { return { reductions: [] }; });
+        return fn(file);
     }
 
     dataPromise
         .then(function (data) {
-            modelData = data[0];
-            reductions = data[1].reductions || [];
+            modelData = data;
             init();
         })
         .catch(function (err) {
@@ -114,23 +110,57 @@
         document.getElementById('matrix-loading').style.display = 'none';
         container.style.display = 'block';
 
-        if (reductions.length > 0) {
-            document.getElementById('stepper-bar').style.display = 'flex';
-            var slider = document.getElementById('step-slider');
-            slider.max = reductions.length;
-            slider.value = 0;
-        }
+        // Reveal the bottom bar in its picker phase. Stepper appears
+        // only after the user clicks Run.
+        showPresolvePicker();
 
         // Defer fit until browser has laid out the container
         requestAnimationFrame(function () {
             resizeCanvas();
             fitToScreen();
             setupEvents();
-            if (reductions.length > 0) {
-                updateStepperUI();
-            }
             redraw();
             drawMinimap();
+        });
+    }
+
+    function showPresolvePicker() {
+        document.getElementById('stepper-bar').style.display = 'flex';
+        document.getElementById('presolve-picker').style.display = 'flex';
+        document.getElementById('stepper-active').style.display = 'none';
+        document.getElementById('presolve-status').textContent = '';
+    }
+
+    function showStepper(source) {
+        document.getElementById('presolve-picker').style.display = 'none';
+        document.getElementById('stepper-active').style.display = 'block';
+        document.getElementById('stepper-source-label').textContent =
+            'Reduced by ' + (source === 'cub' ? 'cub' : 'HiGHS');
+        var slider = document.getElementById('step-slider');
+        slider.max = reductions.length;
+        slider.value = 0;
+        updateStepperUI();
+    }
+
+    function runPresolveSelected() {
+        if (!instanceFile) return;
+        var status = document.getElementById('presolve-status');
+        var runBtn = document.getElementById('presolve-run-btn');
+        status.textContent = 'running ' + reductionSource + '…';
+        runBtn.disabled = true;
+        fetchReductions(instanceFile, reductionSource).then(function (data) {
+            reductions = data.reductions || [];
+            runBtn.disabled = false;
+            if (reductions.length === 0) {
+                status.textContent = 'no reductions';
+                return;
+            }
+            resetSteps();
+            showStepper(reductionSource);
+        }).catch(function (err) {
+            console.error('Presolve error:', err);
+            status.textContent = 'failed: ' + err.message;
+            runBtn.disabled = false;
         });
     }
 
@@ -678,28 +708,21 @@
             document.getElementById('reduction-panel').style.display = 'none';
         });
 
-        // Reduction-source toggle (HiGHS / cub)
+        // Reduction-source toggle (HiGHS / cub) — selection only.
         var sourceBtns = document.querySelectorAll('#reduction-source .source-btn');
         sourceBtns.forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var src = btn.getAttribute('data-source');
-                if (src === reductionSource || !instanceFile) return;
-                stopPlay();
+                if (src === reductionSource) return;
                 reductionSource = src;
                 sourceBtns.forEach(function (b) { b.classList.toggle('active', b === btn); });
-                btn.disabled = true;
-                fetchReductions(instanceFile, src).then(function (data) {
-                    reductions = data.reductions || [];
-                    resetSteps();
-                    var slider = document.getElementById('step-slider');
-                    slider.max = reductions.length;
-                    slider.value = 0;
-                    document.getElementById('step-label').textContent =
-                        'Step 0 / ' + reductions.length;
-                    document.getElementById('step-next').disabled = reductions.length === 0;
-                    btn.disabled = false;
-                });
             });
+        });
+
+        document.getElementById('presolve-run-btn').addEventListener('click', runPresolveSelected);
+        document.getElementById('presolve-reopen-btn').addEventListener('click', function () {
+            stopPlay();
+            showPresolvePicker();
         });
 
         // Keyboard
