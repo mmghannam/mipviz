@@ -13,9 +13,9 @@
       "solvers": [
         { "key": "scip_spx", "label": "SCIP/spx 10.0.0", "closedSource": false, "separator": false },
         { "key": "scip_conc", "label": "SCIPCO/spx 11.0.0 (conc)", "closedSource": false, "separator": false },
-        { "key": "xsmoo", "label": "XSMOO (Smoothie)", "closedSource": true, "separator": false },
         { "key": "highs", "label": "HiGHS 1.15.0", "closedSource": false, "separator": false },
         { "key": "highs_p", "label": "HiGHS 1.15.1 (par)", "closedSource": false, "separator": false },
+        { "key": "xsmoo", "label": "XSMOO (Smoothie)", "closedSource": true, "separator": false },
         { "key": "copt", "label": "COPT 8.0.3", "closedSource": true, "separator": false },
         { "key": "optverse", "label": "Optverse 2.0.1", "closedSource": true, "separator": false }
       ]

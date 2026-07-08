@@ -41,15 +41,76 @@
             margin: 4px 0 4px;
         }
         .metric-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .solver-controls {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 0 0 14px;
+        }
+        .solver-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .solver-chip {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-raised);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+        }
+        .solver-chip:hover { border-color: var(--text-muted); color: var(--text); }
+        .solver-chip.off { opacity: 0.4; text-decoration: line-through; color: var(--text-muted); }
         .closed-legend {
             display: flex;
+            justify-content: flex-end;
             align-items: center;
             gap: 6px;
-            margin-left: auto;
+            margin: 0 0 8px;
             font-family: var(--font-mono);
             font-size: 11px;
             color: var(--text-muted);
         }
+        .agg-section { margin: 4px 0 28px; }
+        .agg-header { display: flex; justify-content: center; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+        .agg-title { font-family: var(--font-body); font-size: 16px; font-weight: 600; color: var(--text); margin: 0; }
+        .agg-note { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+        .agg-table-wrap {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--bg-raised);
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .agg-table {
+            border-collapse: collapse;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+        }
+        .agg-table th, .agg-table td { padding: 9px 18px; white-space: nowrap; text-align: right; }
+        .agg-table thead th {
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
+        }
+        .agg-table thead tr:first-child th.agg-group { text-align: center; color: var(--text-secondary); }
+        .agg-table th.agg-solver, .agg-table td.agg-solver { text-align: left; }
+        .agg-table td.agg-solver { color: var(--text); }
+        .agg-table .agg-group { border-left: 1px solid var(--border-subtle); }
+        .agg-table tbody tr:not(:last-child):not(.agg-vbs) td { border-bottom: 1px solid var(--border-subtle); }
+        .agg-table tbody tr:hover { background: var(--bg-hover); }
+        .agg-table td.agg-closed { color: var(--orange); }
+        .agg-ratio { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+        .agg-table td.agg-best { color: var(--green); }
+        .agg-table td.agg-best .agg-ratio { color: var(--green); opacity: 0.7; }
+        .agg-table tr.agg-vbs td { border-top: 1px solid var(--border); font-weight: 600; }
+        .agg-table tr.agg-vbs td.agg-solver { color: var(--accent); }
         .closed-swatch {
             width: 12px;
             height: 12px;
@@ -111,8 +172,19 @@
                     <button class="metric-btn" data-metric="presolve">Presolve</button>
                     <button class="metric-btn" data-metric="lp_gap">LP Gap</button>
                 </div>
-                <span id="closed-legend" class="closed-legend hidden"><span class="closed-swatch"></span>Closed source</span>
             </div>
+            <div class="solver-controls">
+                <span class="sort-label">Solvers</span>
+                <div id="solver-chips" class="solver-chips"></div>
+            </div>
+            <div id="agg-section" class="agg-section hidden">
+                <div class="agg-header">
+                    <h3 class="agg-title">Aggregate</h3>
+                    <span class="agg-note">Shifted geometric mean over all instances · time shift 10s (unsolved charged 7200s), node shift 100</span>
+                </div>
+                <div id="agg-wrap" class="agg-table-wrap"></div>
+            </div>
+            <span id="closed-legend" class="closed-legend hidden"><span class="closed-swatch"></span>Closed source</span>
             <div class="bank-table-wrap">
                 <table class="bank-table benchmark-table">
                     <thead>
@@ -156,8 +228,15 @@
     const versionConfigEl = document.getElementById('version-config');
     const versionNoteEl = document.getElementById('version-note');
     const headRow = document.getElementById('bench-head-row');
+    const solverChips = document.getElementById('solver-chips');
+    const aggSection = document.getElementById('agg-section');
+    const aggWrap = document.getElementById('agg-wrap');
 
     const TIMEOUT = 7200;
+    // Shifted geometric mean shifts (SGM_s(x) = exp(mean ln(x+s)) - s).
+    // Time shift 10s matches Mittelmann's published shifted geomeans exactly.
+    const SGM_TIME_SHIFT = 10;   // seconds
+    const SGM_NODES_SHIFT = 100;
 
     // Version-derived state (set by loadVersion). SOLVERS is the ordered list of
     // solver keys for the current version; SOLVER_META maps key -> its manifest entry.
@@ -166,6 +245,7 @@
     let SOLVER_META = {};
     let SOLVER_LABELS = {};
     let CLOSED_SOURCE = new Set();
+    let visibleSolvers = new Set(); // solver keys currently shown as columns
 
     let allRows = [];
     let currentSort = 'name';
@@ -280,9 +360,8 @@
             const tr = document.createElement('tr');
             const bestObj = row._stats ? row._stats.best_obj : null;
             let cells = '<td class="col-name"><a href="' + instanceHref(row.name) + '">' + row.name.replace('.mps.gz', '') + '</a></td>';
-            for (let i = 0; i < SOLVERS.length; i++) {
-                const s = SOLVERS[i];
-                const meta = SOLVER_META[s] || {};
+            for (const meta of displayedSolvers()) {
+                const s = meta.key;
                 const sep = meta.separator ? ' col-separator' : '';
                 const com = meta.closedSource ? ' col-closed' : '';
                 cells += '<td class="col-solver' + sep + com + '">' + renderCell(row[s], row.name, s, bestObj) + '</td>';
@@ -449,10 +528,15 @@
     }
 
     // Rebuild the solver <th> columns from the current version's solver list.
+    // Solvers currently shown, in the version's declared order.
+    function displayedSolvers() {
+        return currentVersion.solvers.filter(function (s) { return visibleSolvers.has(s.key); });
+    }
+
     function buildHead() {
         // Drop everything after the Name column, then re-add per-solver headers.
         while (headRow.children.length > 1) headRow.removeChild(headRow.lastChild);
-        for (const solver of currentVersion.solvers) {
+        for (const solver of displayedSolvers()) {
             const th = document.createElement('th');
             th.className = 'col-solver sortable' +
                 (solver.separator ? ' col-separator' : '') +
@@ -461,6 +545,166 @@
             th.innerHTML = escapeHtml(solver.label) + '<span class="sort-indicator"></span>';
             headRow.appendChild(th);
         }
+    }
+
+    // Chips to show/hide individual solver columns.
+    function buildSolverChips() {
+        solverChips.innerHTML = '';
+        for (const solver of currentVersion.solvers) {
+            const chip = document.createElement('button');
+            chip.className = 'solver-chip' + (visibleSolvers.has(solver.key) ? '' : ' off');
+            chip.dataset.solver = solver.key;
+            chip.textContent = solver.label;
+            chip.title = visibleSolvers.has(solver.key) ? 'Hide column' : 'Show column';
+            chip.addEventListener('click', function () { toggleSolver(solver.key); });
+            solverChips.appendChild(chip);
+        }
+    }
+
+    function toggleSolver(key) {
+        if (visibleSolvers.has(key)) {
+            if (visibleSolvers.size <= 1) return; // keep at least one solver column
+            visibleSolvers.delete(key);
+            if (currentSort === key) { currentSort = 'name'; sortAsc = true; }
+        } else {
+            visibleSolvers.add(key);
+        }
+        buildSolverChips();
+        buildHead();
+        updateSortIndicators();
+        applyFilter();
+        renderAggregates();
+    }
+
+    // ── Aggregate: shifted geometric means over instance subsets ────────────
+
+    function shiftedGeoMean(values, shift) {
+        if (!values.length) return null;
+        var sum = 0;
+        for (var i = 0; i < values.length; i++) sum += Math.log(Math.max(values[i], 0) + shift);
+        return Math.exp(sum / values.length) - shift;
+    }
+
+    // Per-solver SGM of time and nodes over a fixed instance subset.
+    // Unsolved runs are charged the time limit; nodes use whatever the log recorded.
+    function solverStats(rows, key) {
+        var times = [], nodes = [];
+        for (var i = 0; i < rows.length; i++) {
+            var d = rows[i][key] || {};
+            times.push(d.time != null ? d.time : TIMEOUT);
+            if (d.nodes != null) nodes.push(d.nodes);
+        }
+        return {
+            time: shiftedGeoMean(times, SGM_TIME_SHIFT),
+            nodes: shiftedGeoMean(nodes, SGM_NODES_SHIFT),
+            nNodes: nodes.length,
+        };
+    }
+
+    // Virtual best solver: per instance, the best time and best nodes across the
+    // shown solvers (an oracle that always picks the winner for each metric).
+    function vbsStats(rows, keys) {
+        var times = [], nodes = [];
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i], bestT = null, bestN = null;
+            for (var j = 0; j < keys.length; j++) {
+                var d = r[keys[j]];
+                if (!d) continue;
+                if (d.time != null && (bestT === null || d.time < bestT)) bestT = d.time;
+                if (d.nodes != null && (bestN === null || d.nodes < bestN)) bestN = d.nodes;
+            }
+            times.push(bestT != null ? bestT : TIMEOUT);
+            if (bestN != null) nodes.push(bestN);
+        }
+        return {
+            time: shiftedGeoMean(times, SGM_TIME_SHIFT),
+            nodes: shiftedGeoMean(nodes, SGM_NODES_SHIFT),
+            nNodes: nodes.length,
+        };
+    }
+
+    function computeAggregates() {
+        var disp = displayedSolvers().map(function (s) { return s.key; });
+        if (!allRows.length || !disp.length) return null;
+        var solved = function (r, k) { return r[k] && r[k].time != null; };
+        var allOpt = allRows.filter(function (r) { return disp.every(function (k) { return solved(r, k); }); });
+        var anySolved = allRows.filter(function (r) { return disp.some(function (k) { return solved(r, k); }); });
+        var perSolver = disp.map(function (k) {
+            var solvedCount = allRows.filter(function (r) { return solved(r, k); }).length;
+            return { key: k, solved: solvedCount, allOpt: solverStats(allOpt, k), any: solverStats(anySolved, k) };
+        });
+        var vbs = {
+            solved: anySolved.length, // VBS solves an instance iff any shown solver does
+            allOpt: vbsStats(allOpt, disp),
+            any: vbsStats(anySolved, disp),
+        };
+        return { nAllOpt: allOpt.length, nAny: anySolved.length, total: allRows.length, perSolver: perSolver, vbs: vbs };
+    }
+
+    function fmtSgmTime(v) { return v == null ? '—' : (v < 10 ? v.toFixed(2) : v.toFixed(1)) + 's'; }
+    function fmtSgmNodes(v) { return v == null ? '—' : Math.round(v).toLocaleString(); }
+
+    function renderAggregates() {
+        var agg = computeAggregates();
+        if (!agg) { aggSection.classList.add('hidden'); aggWrap.innerHTML = ''; return; }
+        aggSection.classList.remove('hidden');
+
+        // Column minima over the shown solvers = the fastest / fewest-nodes solver,
+        // the reference (1.00×) for the slowdown ratios. VBS is excluded.
+        function colMin(pick) {
+            var m = null;
+            for (var i = 0; i < agg.perSolver.length; i++) {
+                var v = pick(agg.perSolver[i]);
+                if (v != null && (m === null || v < m)) m = v;
+            }
+            return m;
+        }
+        var min = {
+            aoT: colMin(function (p) { return p.allOpt.time; }),
+            aoN: colMin(function (p) { return p.allOpt.nodes; }),
+            anT: colMin(function (p) { return p.any.time; }),
+            anN: colMin(function (p) { return p.any.nodes; }),
+        };
+
+        // A metric cell: value + slowdown ratio to the column's best; flags the best.
+        function cell(v, m, isTime, isGroup) {
+            var txt = isTime ? fmtSgmTime(v) : fmtSgmNodes(v);
+            var ratio = '';
+            if (v != null && m != null && m > 0) {
+                var r = v / m;
+                ratio = ' <span class="agg-ratio">' + (r < 10 ? r.toFixed(2) : r.toFixed(1)) + '×</span>';
+            }
+            var cls = 'agg-metric' + (isGroup ? ' agg-group' : '') + (v != null && v === m ? ' agg-best' : '');
+            return '<td class="' + cls + '">' + txt + ratio + '</td>';
+        }
+
+        function row(label, closed, solved, s, cls) {
+            return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
+                '<td class="agg-solver' + (closed ? ' agg-closed' : '') + '">' + escapeHtml(label) + '</td>' +
+                '<td>' + solved + ' / ' + agg.total + '</td>' +
+                cell(s.allOpt.time, min.aoT, true, true) +
+                cell(s.allOpt.nodes, min.aoN, false, false) +
+                cell(s.any.time, min.anT, true, true) +
+                cell(s.any.nodes, min.anN, false, false) +
+                '</tr>';
+        }
+
+        var html = '<table class="agg-table"><thead>' +
+            '<tr><th class="agg-solver" rowspan="2">Solver</th>' +
+            '<th rowspan="2">Solved</th>' +
+            '<th class="agg-group" colspan="2">All optimal (n=' + agg.nAllOpt + ')</th>' +
+            '<th class="agg-group" colspan="2">Solved by any (n=' + agg.nAny + ')</th></tr>' +
+            '<tr><th class="agg-group">time</th><th>nodes</th>' +
+            '<th class="agg-group">time</th><th>nodes</th></tr></thead><tbody>';
+
+        for (var i = 0; i < agg.perSolver.length; i++) {
+            var p = agg.perSolver[i];
+            var closed = SOLVER_META[p.key] && SOLVER_META[p.key].closedSource;
+            html += row(SOLVER_LABELS[p.key] || p.key, closed, p.solved, p, '');
+        }
+        html += row('Virtual best', false, agg.vbs.solved, agg.vbs, 'agg-vbs');
+        html += '</tbody></table>';
+        aggWrap.innerHTML = html;
     }
 
     // Enable only the metrics this version can answer. Times-only runs (no logs)
@@ -488,6 +732,7 @@
             SOLVER_LABELS[s.key] = s.label;
             if (s.closedSource) CLOSED_SOURCE.add(s.key);
         }
+        visibleSolvers = new Set(SOLVERS); // reset to all-shown for the new version
         // Reset sort if the previous sort column doesn't exist in this version.
         if (currentSort !== 'name' && SOLVERS.indexOf(currentSort) === -1) {
             currentSort = 'name';
@@ -511,6 +756,7 @@
         document.getElementById('closed-legend').classList.toggle('hidden', !hasClosed);
 
         buildHead();
+        buildSolverChips();
         configureMetrics();
         updateSortIndicators();
     }
@@ -522,6 +768,7 @@
         bankStatus.textContent = 'Loading benchmark data...';
         allRows = [];
         renderTable([]);
+        renderAggregates(); // hides the (now-empty) aggregate while loading
         // Keep the URL shareable/bookmarkable.
         try {
             var u = new URL(window.location.href);
@@ -539,6 +786,7 @@
                 }));
                 bankStatus.classList.add('hidden');
                 applyFilter();
+                renderAggregates();
             })
             .catch(err => {
                 console.error(err);
