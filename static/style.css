@@ -3462,15 +3462,15 @@ th.col-cons-type.hidden {
     border-right: 2px solid var(--border);
 }
 
-.benchmark-table .col-commercial {
+.benchmark-table .col-closed {
     background: rgba(234, 88, 12, 0.04);
 }
 
-.benchmark-table thead .col-commercial {
+.benchmark-table thead .col-closed {
     color: var(--orange);
 }
 
-:root.light .benchmark-table .col-commercial {
+:root.light .benchmark-table .col-closed {
     background: rgba(234, 88, 12, 0.06);
 }
 

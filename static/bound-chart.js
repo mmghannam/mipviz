@@ -6,7 +6,10 @@
     var SOLVER_COLORS = {
         scip_spx:  '#60a5fa', // blue
         scipc_cpx: '#a78bfa', // purple
+        scip_conc: '#818cf8', // indigo
         highs:     '#34d399', // green
+        highs_p:   '#2dd4bf', // teal
+        xsmoo:     '#facc15', // yellow
         copt:      '#fb923c', // orange
         optverse:  '#f472b6', // pink
     };
@@ -101,10 +104,32 @@
         return points;
     }
 
+    function parseSCIPConc(text) {
+        // Concurrent SCIP compact table:
+        // " 20.4s|1432M| 1.546792e+02 | 4.530000e+02 | 192.86%"
+        // Columns: time | mem | dualbound | primalbound | gap
+        var lines = text.split('\n');
+        var points = [];
+        var re = /^\s*([\d.]+)s\|\s*\S+\|\s*([\d.eE+\-]+)\s*\|\s*([\d.eE+\-]+|--)\s*\|/;
+        for (var i = 0; i < lines.length; i++) {
+            var m = lines[i].match(re);
+            if (!m) continue;
+            var t = parseFloat(m[1]);
+            var dual = parseFloat(m[2]);
+            var primal = m[3] === '--' ? null : parseFloat(m[3]);
+            if (isNaN(t) || isNaN(dual)) continue;
+            if (primal !== null && isNaN(primal)) primal = null;
+            points.push({ t: t, dual: dual, primal: primal });
+        }
+        return points;
+    }
+
     var PARSERS = {
         scip_spx: parseSCIP,
         scipc_cpx: parseSCIP,
+        scip_conc: parseSCIPConc,
         highs: parseHiGHS,
+        highs_p: parseHiGHS, // parallel HiGHS uses the same B&B table columns
         copt: parseCOPT,
         optverse: parseOptverse,
     };

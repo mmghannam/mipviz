@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instance Details — mipviz</title>
-    <link rel="stylesheet" href="./style.css?v=64">
+    <link rel="stylesheet" href="./style.css?v=65">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -70,13 +70,13 @@
             color: var(--text-muted);
             font-size: 11px;
         }
-        .metrics-table .col-commercial {
+        .metrics-table .col-closed {
             background: rgba(234, 88, 12, 0.04);
         }
-        .metrics-table thead .col-commercial {
+        .metrics-table thead .col-closed {
             color: var(--orange);
         }
-        :root.light .metrics-table .col-commercial {
+        :root.light .metrics-table .col-closed {
             background: rgba(234, 88, 12, 0.06);
         }
         .metrics-table .col-separator {
@@ -270,6 +270,65 @@
             display: block;
             cursor: crosshair;
         }
+
+        .instance-version-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 0 0 16px;
+        }
+        .instance-version-config {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .version-select {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text);
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px 26px 5px 10px;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+        .version-select:hover { border-color: var(--text-muted); }
+        .version-select:focus { outline: none; border-color: var(--accent); }
+        .benchmark-note {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text-muted);
+            background: var(--bg-raised);
+            border: 1px solid var(--border-subtle);
+            border-left: 2px solid var(--orange);
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin: 0 0 20px;
+        }
+        .closed-legend {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: -20px 0 24px;
+        }
+        .closed-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            background: rgba(234, 88, 12, 0.12);
+            border: 1px solid rgba(234, 88, 12, 0.5);
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -307,9 +366,17 @@
                 <a id="viewer-link" href="#" class="instance-back" style="display:none;margin:0;font-size:12px">Open in viewer &rarr;</a>
             </div>
 
+            <div class="instance-version-row">
+                <span class="sort-label">Version</span>
+                <select id="version-select" class="version-select"></select>
+                <span id="version-config" class="instance-version-config"></span>
+            </div>
+            <div id="version-note" class="benchmark-note hidden"></div>
+
             <div id="instance-stats" class="stats-grid" style="display:none"></div>
 
             <div id="metrics-wrap"></div>
+            <div id="closed-legend" class="closed-legend hidden"><span class="closed-swatch"></span>Closed source</div>
 
             <div id="bound-chart-container"></div>
 
@@ -331,20 +398,33 @@
     </footer>
 
     <script src="./theme.js?v=1"></script>
-    <script src="./bound-chart.js?v=5"></script>
+    <script src="./bound-chart.js?v=6"></script>
     <script>
-    const SOLVERS = ['scip_spx', 'scipc_cpx', 'highs', 'copt', 'optverse'];
-    const SOLVER_LABELS = { highs: 'HiGHS 1.13.0', scip_spx: 'SCIP/spx 10.0.0', scipc_cpx: 'SCIP/cpx 10.0.0', copt: 'COPT 8.0.3', optverse: 'Optverse 2.0.1' };
-    const COMMERCIAL = new Set(['copt', 'optverse']);
+    // Version-derived state, set by loadVersion().
+    let currentVersion = null;
+    let SOLVERS = [];
+    let SOLVER_LABELS = {};
+    let CLOSED_SOURCE = new Set();
+    let SOLVER_META = {};
 
     const instanceNameEl = document.getElementById('instance-name');
     const metricsWrap = document.getElementById('metrics-wrap');
     const logTabs = document.getElementById('log-tabs');
     const logBody = document.getElementById('log-body');
+    const logViewer = document.querySelector('.log-viewer');
+    const boundContainer = document.getElementById('bound-chart-container');
+    const versionSelect = document.getElementById('version-select');
+    const versionConfigEl = document.getElementById('version-config');
+    const versionNoteEl = document.getElementById('version-note');
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
 
     // Get instance from URL
     const params = new URLSearchParams(window.location.search);
     const instanceKey = params.get('instance');
+    const wantedVersion = params.get('v');
 
     if (!instanceKey) {
         instanceNameEl.textContent = 'No instance specified';
@@ -357,13 +437,15 @@
         viewerLink.href = './index.html#instance=' + encodeURIComponent(baseName);
         viewerLink.style.display = '';
 
-        // Log cache
+        // Log cache, keyed by version+solver so switching versions stays correct.
         const logCache = {};
         let activeTab = null;
 
         async function loadLog(solver) {
-            if (logCache[solver]) return logCache[solver];
-            const url = './logs/' + solver + '/' + baseName + '.txt.gz';
+            if (!currentVersion || !currentVersion.logs) throw new Error('No logs for this version');
+            const cacheKey = currentVersion.id + '/' + solver;
+            if (logCache[cacheKey]) return logCache[cacheKey];
+            const url = './' + currentVersion.logs + '/' + solver + '/' + baseName + '.txt.gz';
             const resp = await fetch(url);
             if (!resp.ok) throw new Error('Log not found');
             const ds = new DecompressionStream('gzip');
@@ -375,7 +457,7 @@
                 if (done) break;
                 text += decoder.decode(value, { stream: true });
             }
-            logCache[solver] = text;
+            logCache[cacheKey] = text;
             return text;
         }
 
@@ -429,6 +511,7 @@
         function buildTable(data) {
             const solverData = SOLVERS.map(s => data[s] || {});
             const bestObj = data._stats ? data._stats.best_obj : null;
+            const hasDetail = !!(currentVersion && currentVersion.detail);
 
             function fmtDualWithGap(v) {
                 if (v === null || v === undefined) return '<span class="metric-value-none">\u2014</span>';
@@ -441,7 +524,8 @@
                 return valStr;
             }
 
-            const METRICS = [
+            // Times-only versions only have solve time; skip the derived sections.
+            const METRICS = hasDetail ? [
                 { section: 'Performance' },
                 { key: 'time', label: 'Solve time', fmt: fmtTime },
                 { key: 'nodes', label: 'Nodes', fmt: fmtNodes },
@@ -454,14 +538,19 @@
                 { section: 'Root Node (after cuts)' },
                 { key: 'root_dual', label: 'Dual bound', fmt: fmtDualWithGap },
                 { key: 'root_primal', label: 'Primal bound' },
+            ] : [
+                { section: 'Performance' },
+                { key: 'time', label: 'Solve time', fmt: fmtTime },
             ];
+
+            function cellCls(i) {
+                const meta = SOLVER_META[SOLVERS[i]] || {};
+                return (meta.separator ? ' col-separator' : '') + (meta.closedSource ? ' col-closed' : '');
+            }
 
             let html = '<table class="metrics-table"><thead><tr><th>Metric</th>';
             for (let i = 0; i < SOLVERS.length; i++) {
-                const s = SOLVERS[i];
-                const sep = (i === 2) ? ' col-separator' : '';
-                const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
-                html += '<th class="' + sep + com + '">' + SOLVER_LABELS[s] + '</th>';
+                html += '<th class="' + cellCls(i) + '">' + escapeHtml(SOLVER_LABELS[SOLVERS[i]]) + '</th>';
             }
             html += '</tr></thead><tbody>';
 
@@ -469,21 +558,16 @@
                 if (m.section) {
                     html += '<tr class="metric-section-label"><td>' + m.section + '</td>';
                     for (let i = 0; i < SOLVERS.length; i++) {
-                        const sep = (i === 2) ? ' col-separator' : '';
-                        const com = COMMERCIAL.has(SOLVERS[i]) ? ' col-commercial' : '';
-                        html += '<td class="' + sep + com + '"></td>';
+                        html += '<td class="' + cellCls(i) + '"></td>';
                     }
                     html += '</tr>';
                     continue;
                 }
                 html += '<tr><td>' + m.label + '</td>';
                 for (let i = 0; i < SOLVERS.length; i++) {
-                    const s = SOLVERS[i];
-                    const sep = (i === 2) ? ' col-separator' : '';
-                    const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
                     const val = solverData[i][m.key];
                     const formatted = m.fmt ? m.fmt(val) : fmtVal(val);
-                    html += '<td class="' + sep + com + '">' + formatted + '</td>';
+                    html += '<td class="' + cellCls(i) + '">' + formatted + '</td>';
                 }
                 html += '</tr>';
             }
@@ -492,63 +576,145 @@
             metricsWrap.innerHTML = html;
         }
 
-        // Build log tabs
-        for (const s of SOLVERS) {
-            const btn = document.createElement('button');
-            btn.className = 'log-tab';
-            btn.dataset.solver = s;
-            btn.textContent = SOLVER_LABELS[s];
-            btn.addEventListener('click', () => showTab(s));
-            logTabs.appendChild(btn);
+        function renderStats(instData) {
+            const s = instData._stats;
+            const statsEl = document.getElementById('instance-stats');
+            if (!s || s.cols === null || s.cols === undefined) {
+                statsEl.style.display = 'none';
+                return;
+            }
+            const items = [
+                { label: 'Variables', value: s.cols, cls: '' },
+                { label: 'Constraints', value: s.rows, cls: '' },
+                { label: 'Nonzeros', value: s.nonzeros, cls: '' },
+                { label: 'Continuous', value: s.continuous, cls: 'accent-blue' },
+                { label: 'Integer', value: s.integer, cls: 'accent-green' },
+                { label: 'Binary', value: s.binary, cls: 'accent-orange' },
+            ];
+            statsEl.innerHTML = items.map(it =>
+                '<div class="stat-card ' + it.cls + '">' +
+                '<span class="stat-value">' + (it.value !== null && it.value !== undefined ? it.value.toLocaleString() : '\u2014') + '</span>' +
+                '<span class="stat-label">' + it.label + '</span>' +
+                '</div>'
+            ).join('');
+            statsEl.style.display = '';
         }
 
-        // Load data
-        fetch('./benchmark-12threads-details.json')
+        function buildLogTabs() {
+            logTabs.innerHTML = '';
+            for (const s of SOLVERS) {
+                const btn = document.createElement('button');
+                btn.className = 'log-tab';
+                btn.dataset.solver = s;
+                btn.textContent = SOLVER_LABELS[s];
+                btn.addEventListener('click', () => showTab(s));
+                logTabs.appendChild(btn);
+            }
+        }
+
+        function applyVersionState() {
+            SOLVERS = currentVersion.solvers.map(s => s.key);
+            SOLVER_META = {};
+            SOLVER_LABELS = {};
+            CLOSED_SOURCE = new Set();
+            for (const s of currentVersion.solvers) {
+                SOLVER_META[s.key] = s;
+                SOLVER_LABELS[s.key] = s.label;
+                if (s.closedSource) CLOSED_SOURCE.add(s.key);
+            }
+            window.SOLVER_LABELS = SOLVER_LABELS; // used by bound-chart.js legend
+            var hasClosed = currentVersion.solvers.some(function (s) { return s.closedSource; });
+            document.getElementById('closed-legend').classList.toggle('hidden', !hasClosed);
+            var cfg = currentVersion.attribution || '';
+            var src = currentVersion.sourceUrl;
+            versionConfigEl.innerHTML = escapeHtml(cfg) +
+                (src ? ' <a href="' + escapeHtml(src) + '" target="_blank" rel="noopener">source \u2197</a>' : '');
+            if (currentVersion.note) {
+                versionNoteEl.textContent = currentVersion.note;
+                versionNoteEl.classList.remove('hidden');
+            } else {
+                versionNoteEl.classList.add('hidden');
+            }
+        }
+
+        function loadVersion(version) {
+            currentVersion = version;
+            activeTab = null;
+            applyVersionState();
+            try {
+                var u = new URL(window.location.href);
+                u.searchParams.set('v', version.id);
+                history.replaceState(null, '', u.toString());
+            } catch (e) { /* ignore */ }
+
+            metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Loading...</p>';
+            logViewer.style.display = 'none';
+            boundContainer.style.display = 'none';
+
+            fetch('./' + version.details)
+                .then(r => r.json())
+                .then(data => {
+                    if (currentVersion !== version) return; // superseded
+                    if (!data[instanceKey]) {
+                        metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Instance not found in this benchmark version.</p>';
+                        return;
+                    }
+                    const instData = data[instanceKey];
+                    renderStats(instData);
+                    buildTable(instData);
+
+                    if (version.logs) {
+                        logViewer.style.display = '';
+                        boundContainer.style.display = '';
+                        boundContainer.innerHTML = '';
+                        buildLogTabs();
+                        logBody.innerHTML = '<div class="log-loading">Select a solver tab to view its log</div>';
+                        initBoundChart(boundContainer, instData._stats);
+                        SOLVERS.forEach(function (solver) {
+                            loadLog(solver).then(function (text) {
+                                if (currentVersion === version) addBoundSeries(solver, text);
+                            }).catch(function () { /* log not available */ });
+                        });
+                        showTab(SOLVERS[0]);
+                    } else {
+                        logTabs.innerHTML = '';
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Failed to load benchmark data.</p>';
+                });
+        }
+
+        versionSelect.addEventListener('change', () => {
+            const v = MANIFEST.versions.find(x => x.id === versionSelect.value);
+            if (v) loadVersion(v);
+        });
+
+        let MANIFEST = { versions: [] };
+
+        fetch('./benchmark-versions.json')
             .then(r => r.json())
-            .then(data => {
-                if (!data[instanceKey]) {
-                    instanceNameEl.textContent = baseName + ' (not found)';
-                    metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Instance not found in benchmark data.</p>';
+            .then(manifest => {
+                MANIFEST = manifest;
+                if (!manifest.versions || !manifest.versions.length) {
+                    metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">No benchmark versions configured.</p>';
                     return;
                 }
-                const instData = data[instanceKey];
-                // Render instance stats grid
-                const s = instData._stats;
-                if (s && s.cols !== null) {
-                    const statsEl = document.getElementById('instance-stats');
-                    const items = [
-                        { label: 'Variables', value: s.cols, cls: '' },
-                        { label: 'Constraints', value: s.rows, cls: '' },
-                        { label: 'Nonzeros', value: s.nonzeros, cls: '' },
-                        { label: 'Continuous', value: s.continuous, cls: 'accent-blue' },
-                        { label: 'Integer', value: s.integer, cls: 'accent-green' },
-                        { label: 'Binary', value: s.binary, cls: 'accent-orange' },
-                    ];
-                    statsEl.innerHTML = items.map(it =>
-                        '<div class="stat-card ' + it.cls + '">' +
-                        '<span class="stat-value">' + (it.value !== null ? it.value.toLocaleString() : '\u2014') + '</span>' +
-                        '<span class="stat-label">' + it.label + '</span>' +
-                        '</div>'
-                    ).join('');
-                    statsEl.style.display = '';
+                versionSelect.innerHTML = '';
+                for (const v of manifest.versions) {
+                    const opt = document.createElement('option');
+                    opt.value = v.id;
+                    opt.textContent = v.label;
+                    versionSelect.appendChild(opt);
                 }
-                buildTable(instData);
-
-                // Init bound convergence chart and load all solver logs
-                var chartContainer = document.getElementById('bound-chart-container');
-                initBoundChart(chartContainer, instData._stats);
-                SOLVERS.forEach(function (solver) {
-                    loadLog(solver).then(function (text) {
-                        addBoundSeries(solver, text);
-                    }).catch(function () { /* log not available */ });
-                });
-
-                // Auto-show first solver log
-                showTab(SOLVERS[0]);
+                let version = manifest.versions.find(v => v.id === wantedVersion) || manifest.versions[0];
+                versionSelect.value = version.id;
+                loadVersion(version);
             })
             .catch(err => {
                 console.error(err);
-                metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Failed to load benchmark data.</p>';
+                metricsWrap.innerHTML = '<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Failed to load benchmark versions.</p>';
             });
     }
     </script>
