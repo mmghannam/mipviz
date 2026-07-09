@@ -219,6 +219,41 @@ h1 {
     color: var(--accent);
 }
 
+/* GitHub Star button */
+.star-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--border);
+}
+
+.star-btn .star-icon {
+    transition: fill 0.15s, stroke 0.15s;
+}
+
+.star-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
+.star-btn:hover .star-icon {
+    fill: var(--orange);
+    stroke: var(--orange);
+}
+
+.star-btn .star-count {
+    font-variant-numeric: tabular-nums;
+    padding-left: 5px;
+    margin-left: 1px;
+    border-left: 1px solid var(--border);
+    min-width: 1ch;
+    text-align: center;
+}
+
+.star-btn .star-count:empty {
+    display: none;
+}
+
 /* Nav Search */
 .nav-search-wrap {
     position: relative;
