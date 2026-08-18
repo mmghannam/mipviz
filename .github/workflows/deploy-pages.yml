@@ -34,13 +34,26 @@ jobs:
           path: dev-src
         continue-on-error: true
 
+      - name: Checkout instance data
+        uses: actions/checkout@v4
+        with:
+          repository: mmghannam/mipviz-instances
+          ref: main
+          path: instance-data
+
       - name: Build site
         run: |
+          generator=main-src/scripts/build_collections_manifest.py
+          if [ "${{ github.ref_name }}" = "dev" ] && [ -f dev-src/scripts/build_collections_manifest.py ]; then
+            generator=dev-src/scripts/build_collections_manifest.py
+          fi
           mkdir -p _site
           cp -r main-src/static/* _site/
+          python3 "$generator" instance-data/collections _site/collections.json
           if [ -d dev-src/static ]; then
             mkdir -p _site/dev
             cp -r dev-src/static/* _site/dev/
+            python3 "$generator" instance-data/collections _site/dev/collections.json
           fi
 
       - name: Upload artifact

@@ -267,27 +267,20 @@ function collectionColor(name) {
 
 function fetchInstanceMeta() {
     if (_metaPromise) return _metaPromise;
-    var GITHUB_API_URL = 'https://api.github.com/repos/mmghannam/mipviz-instances/contents/collections';
     _metaPromise = Promise.all([
         fetch(MIPVIZ_INSTANCES_BASE + 'miplib-metadata.json').then(function(r) { return r.json(); }).catch(function() { return []; }),
-        fetch(GITHUB_API_URL).then(function(r) { return r.json(); }).then(function(files) {
-            if (!Array.isArray(files)) return {};
-            return Promise.all(
-                files.filter(function(f) { return f.name.endsWith('.txt'); }).map(function(f) {
-                    return fetch(f.download_url).then(function(r) { return r.text(); }).then(function(text) {
-                        return { name: f.name.replace('.txt', ''), instances: text.trim().split('\n') };
-                    });
-                })
-            ).then(function(colls) {
-                var map = {};
-                colls.forEach(function(c) {
-                    c.instances.forEach(function(inst) {
-                        if (!map[inst]) map[inst] = [];
-                        map[inst].push(c.name);
-                    });
+        fetch('./collections.json').then(function(r) {
+            if (!r.ok) throw new Error('Failed to load collections: HTTP ' + r.status);
+            return r.json();
+        }).then(function(colls) {
+            var map = {};
+            colls.forEach(function(c) {
+                c.instances.forEach(function(inst) {
+                    if (!map[inst]) map[inst] = [];
+                    map[inst].push(c.name);
                 });
-                return map;
             });
+            return map;
         }).catch(function() { return {}; }),
         fetch(MIPVIZ_INSTANCES_BASE + 'miplib-details.json').then(function(r) { return r.json(); }).catch(function() { return {}; })
     ]).then(function(results) {
