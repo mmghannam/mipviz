@@ -433,11 +433,16 @@
 
     // Load data
     const INSTANCE_REPO = 'https://raw.githubusercontent.com/mmghannam/mipviz-instances/main/';
-    const GITHUB_API_URL = 'https://api.github.com/repos/mmghannam/mipviz-instances/contents/collections';
 
     Promise.all([
         fetch(INSTANCE_REPO + 'instance-stats.json').then(r => r.json()),
-        fetch(GITHUB_API_URL).then(r => r.json()),
+        fetch('./collections.json').then(r => {
+            if (!r.ok) throw new Error(`Failed to load collections: HTTP ${r.status}`);
+            return r.json();
+        }).catch(error => {
+            console.warn(error);
+            return [];
+        }),
         fetch(INSTANCE_REPO + 'miplib-metadata.json').then(r => r.json()).catch(() => []),
         fetch(INSTANCE_REPO + 'miplib-details.json').then(r => r.json()).catch(() => ({})),
     ])
@@ -465,24 +470,7 @@
             consTypeCounts[name] = counts;
         });
 
-        // --- Defensive check for API rate limit ---
-        if (!Array.isArray(collectionFiles)) {
-            let errorMsg = 'Failed to load collection list from GitHub.';
-            if (collectionFiles.message && collectionFiles.message.includes("API rate limit exceeded")) {
-                errorMsg = 'GitHub API rate limit exceeded. Please wait a bit and try again.';
-            }
-            throw new Error(errorMsg);
-        }
-        // --- End defensive check ---
-
-        const collectionPromises = collectionFiles
-            .filter(f => f.name.endsWith('.txt'))
-            .map(f => fetch(f.download_url).then(r => r.text().then(text => ({
-                name: f.name.replace('.txt', ''),
-                instances: text.trim().split('\n')
-            }))));
-        
-        return Promise.all(collectionPromises);
+        return collectionFiles;
     })
     .then(collectionData => {
         // Build the inverted 'collections' object: { instanceName: [collection1, collection2] }
