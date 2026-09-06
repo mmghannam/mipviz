@@ -1344,6 +1344,7 @@ document.querySelectorAll('.solver-option').forEach(btn => {
         document.querySelectorAll('.solver-option').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         updateSolverSettingsIndicator();
+        updateRootCutsBtn();
     });
 });
 
@@ -2423,6 +2424,80 @@ function refreshLpDependentViews() {
     renderVariablesInit();
     renderObjective();
     renderConstraintsInit();
+    updateRootCutsBtn();
+    if (typeof renderSavedList === 'function') renderSavedList();
+}
+
+const rootCutsBtn = document.getElementById('root-cuts-btn');
+function updateRootCutsBtn() {
+    if (!rootCutsBtn) return;
+    if (lpSolution) rootCutsBtn.classList.remove('hidden');
+    else rootCutsBtn.classList.add('hidden');
+    const label = currentSolver === 'scip' ? 'SCIP' : 'HiGHS';
+    rootCutsBtn.title = 'Extract ' + label + ' root-node cuts';
+}
+
+if (rootCutsBtn) {
+    rootCutsBtn.addEventListener('click', async function() {
+        if (!currentUploadFile || !modelData) return;
+        const oldText = rootCutsBtn.textContent;
+        rootCutsBtn.textContent = 'Generating cuts…';
+        rootCutsBtn.disabled = true;
+        try {
+            const useScip = currentSolver === 'scip';
+            const result = useScip
+                ? await API.getRootCutsScip(currentUploadFile, getActiveSolverParams())
+                : await API.getRootCutsHighs(currentUploadFile, getActiveSolverParams());
+            const cuts = (result && result.cuts) || [];
+            const solverLabel = useScip ? 'SCIP' : 'HiGHS';
+            const namePrefix = useScip ? 'scip_cut_' : 'highs_cut_';
+            if (cuts.length === 0) {
+                showToast('No root cuts produced by ' + solverLabel);
+                return;
+            }
+            // Per-separator counter so SCIP cuts get nicer names like "gomory_3".
+            const sepaCounters = {};
+            for (let i = 0; i < cuts.length; i++) {
+                const cut = cuts[i];
+                const id = savedIdCounter++;
+                const terms = (cut.coeffs || []).map(function(pair) {
+                    const vi = pair[0];
+                    const v = (modelData.variables && modelData.variables[vi]) || {};
+                    return {
+                        var_index: vi,
+                        coeff: pair[1],
+                        var_type: v.var_type,
+                        var_name: v.name || ('x' + vi),
+                    };
+                });
+                let cutName;
+                if (useScip && cut.separator) {
+                    sepaCounters[cut.separator] = (sepaCounters[cut.separator] || 0) + 1;
+                    cutName = cut.separator + '_' + sepaCounters[cut.separator];
+                } else {
+                    cutName = namePrefix + (savedInequalities.size + 1);
+                }
+                savedInequalities.set(id, {
+                    id: id,
+                    name: cutName,
+                    terms: terms,
+                    lower: cut.lower == null ? null : cut.lower,
+                    upper: cut.upper == null ? null : cut.upper,
+                    separator: cut.separator || null,
+                    cutSourceName: cut.name || null,
+                    rank: typeof cut.rank === 'number' ? cut.rank : null,
+                    isLocal: !!cut.is_local,
+                });
+            }
+            renderSavedList();
+            showToast('Added ' + cuts.length + ' ' + solverLabel + ' root cut' + (cuts.length === 1 ? '' : 's'));
+        } catch (err) {
+            showToast('Cut extraction error: ' + err.message);
+        } finally {
+            rootCutsBtn.textContent = oldText;
+            rootCutsBtn.disabled = false;
+        }
+    });
 }
 
 function renderVariablesInit() {
@@ -3651,30 +3726,126 @@ function deleteSavedInequality(id) {
     renderAggPanel();
 }
 
+// Violation of a saved row at the current LP solution.
+//   For a ≤ b cut: violation = a·x* − b   (positive ⇒ separates x*).
+//   For a ≥ b cut: violation = b − a·x*.
+//   Two-sided rows: the larger of the two.
+// Efficacy is the Euclidean distance from x* to the cut hyperplane:
+// violation / ‖a‖₂. Returns null when no LP solution is loaded.
+function computeCutMetrics(saved) {
+    if (!lpSolution || !lpSolution.col_values) return null;
+    const cv = lpSolution.col_values;
+    let dot = 0;
+    let normSq = 0;
+    for (const t of saved.terms) {
+        const x = cv[t.var_index];
+        if (x === undefined) return null;
+        dot += t.coeff * x;
+        normSq += t.coeff * t.coeff;
+    }
+    if (normSq === 0) return null;
+    let viol = -Infinity;
+    if (saved.upper != null) viol = Math.max(viol, dot - saved.upper);
+    if (saved.lower != null) viol = Math.max(viol, saved.lower - dot);
+    if (!isFinite(viol)) return null;
+    const eff = viol / Math.sqrt(normSq);
+    return { violation: viol, efficacy: eff };
+}
+
+// Separator-filter chips: null ⇒ show all; otherwise a Set of separator
+// names (with the empty string standing in for "no separator", i.e. user
+// aggregates and HiGHS cuts).
+let savedSeparatorFilter = null;
+
 function renderSavedList() {
     if (!savedListEl) return;
     if (savedInequalities.size === 0) {
         savedListEl.classList.add('hidden');
         savedListEl.innerHTML = '';
+        savedSeparatorFilter = null;
         return;
     }
     savedListEl.classList.remove('hidden');
-    const canResolve = !!currentUploadFile;
-    const resolveTitle = 'Resolve LP relaxation with these cuts added';
+
+    // Histogram by separator. Empty string = no separator info.
+    const sepaHist = new Map();
+    for (const s of savedInequalities.values()) {
+        const k = s.separator || '';
+        sepaHist.set(k, (sepaHist.get(k) || 0) + 1);
+    }
+    // Drop stale filter entries that no longer correspond to any cut.
+    if (savedSeparatorFilter) {
+        for (const k of Array.from(savedSeparatorFilter)) {
+            if (!sepaHist.has(k)) savedSeparatorFilter.delete(k);
+        }
+        if (savedSeparatorFilter.size === 0) savedSeparatorFilter = null;
+    }
+
+    const sepaKeys = Array.from(sepaHist.keys()).sort();
+    const showFilter = sepaKeys.length > 1
+        || (sepaKeys.length === 1 && sepaKeys[0] !== ''); // skip when only user aggregates
+
+    const isVisible = (saved) => {
+        if (!savedSeparatorFilter) return true;
+        return savedSeparatorFilter.has(saved.separator || '');
+    };
+    const visibleCount = Array.from(savedInequalities.values()).filter(isVisible).length;
+
+    const canResolve = !!currentUploadFile && visibleCount > 0;
+    const resolveTitle = 'Resolve LP relaxation with the visible cuts added';
     let html = '<div class="saved-list-header">'
         + '<span>Saved inequalities</span>'
-        + '<button class="saved-resolve-btn" ' + (canResolve ? '' : 'disabled') + ' title="' + resolveTitle + '">Resolve LP (+' + savedInequalities.size + ' cuts)</button>'
+        + '<button class="saved-resolve-btn" ' + (canResolve ? '' : 'disabled') + ' title="' + resolveTitle + '">Resolve LP (+' + visibleCount + ' cuts)</button>'
         + '</div>';
+
+    if (showFilter) {
+        const allSelected = !savedSeparatorFilter;
+        html += '<div class="saved-filter-row">';
+        html += '<button class="saved-filter-chip ' + (allSelected ? 'active' : '') + '" data-sepa="__all__">All (' + savedInequalities.size + ')</button>';
+        for (const k of sepaKeys) {
+            const label = k || 'other';
+            const active = !allSelected && savedSeparatorFilter.has(k);
+            html += '<button class="saved-filter-chip ' + (active ? 'active' : '') + '" data-sepa="' + escapeHtml(k) + '">'
+                + escapeHtml(label) + ' (' + sepaHist.get(k) + ')</button>';
+        }
+        html += '</div>';
+    }
+
     for (const saved of savedInequalities.values()) {
+        if (!isVisible(saved)) continue;
         const key = 's:' + saved.id;
         const expr = formatConstraint(saved, key);
+        const m = computeCutMetrics(saved);
+        let metricsHtml = '';
+        if (m) {
+            const viol = m.violation;
+            const sep = viol > 1e-9;
+            const cls = sep ? 'cut-metric-sep' : 'cut-metric-nonsep';
+            metricsHtml = '<span class="cut-metrics ' + cls
+                + '" title="violation a·x*−b (or b−a·x*); efficacy = violation / ‖a‖₂">'
+                + 'viol ' + formatNum(viol) + ' · eff ' + formatNum(m.efficacy)
+                + '</span>';
+        }
+        let metaHtml = '';
+        if (saved.separator || (saved.rank != null && saved.rank > 0)) {
+            const parts = [];
+            if (saved.separator) parts.push(escapeHtml(saved.separator));
+            if (saved.rank != null && saved.rank > 0) parts.push('rank ' + saved.rank);
+            const tooltip = saved.cutSourceName ? 'SCIP row: ' + saved.cutSourceName : '';
+            metaHtml = '<span class="cut-meta" title="' + escapeHtml(tooltip) + '">'
+                + parts.join(' · ') + '</span>';
+        }
         html += '<div class="saved-row" data-con-idx="' + key + '">'
             + '<span class="constraint-name saved-name">' + escapeHtml(saved.name) + '</span>'
+            + metaHtml
+            + metricsHtml
             + '<button class="saved-delete" data-saved-id="' + saved.id + '" title="Delete">&times;</button>'
-            + '<span class="constraint-expr">' + expr + '</span>'
+            + '<span class="constraint-expr constraint-expr-split">' + expr + '</span>'
             + '</div>';
     }
     savedListEl.innerHTML = html;
+    // Right-align the bound only when the LHS wraps; keep short saved cuts inline.
+    savedListEl.querySelectorAll('.saved-row').forEach(function(row) { maybeCollapseBound(row); });
     // Wire delete buttons
     savedListEl.querySelectorAll('.saved-delete').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
@@ -3687,20 +3858,41 @@ function renderSavedList() {
     if (resolveBtn && canResolve) {
         resolveBtn.addEventListener('click', resolveLpWithSavedCuts);
     }
+    // Filter chips
+    savedListEl.querySelectorAll('.saved-filter-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+            const k = chip.dataset.sepa;
+            if (k === '__all__') {
+                savedSeparatorFilter = null;
+            } else {
+                if (!savedSeparatorFilter) savedSeparatorFilter = new Set();
+                if (savedSeparatorFilter.has(k)) savedSeparatorFilter.delete(k);
+                else savedSeparatorFilter.add(k);
+                if (savedSeparatorFilter.size === 0) savedSeparatorFilter = null;
+            }
+            renderSavedList();
+        });
+    });
     // Reapply agg markers on the new DOM
     refreshAllAggMarkers();
 }
 
 async function resolveLpWithSavedCuts() {
     if (!currentUploadFile || savedInequalities.size === 0) return;
+    const isVisible = (saved) => {
+        if (!savedSeparatorFilter) return true;
+        return savedSeparatorFilter.has(saved.separator || '');
+    };
     const extraRows = [];
     for (const saved of savedInequalities.values()) {
+        if (!isVisible(saved)) continue;
         extraRows.push({
             lower: saved.lower,
             upper: saved.upper,
             coeffs: saved.terms.map(function(t) { return [t.var_index, t.coeff]; }),
         });
     }
+    if (extraRows.length === 0) return;
     const btn = savedListEl.querySelector('.saved-resolve-btn');
     const oldLabel = btn ? btn.textContent : '';
     if (btn) { btn.textContent = 'Solving…'; btn.disabled = true; }
