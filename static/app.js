@@ -47,6 +47,15 @@ let activeComponentFilter = null; // { index, rowSet, colSet } or null
 let activeConstraintVarFilter = null; // constraint index or null
 let lpSolution = null; // { col_values, objective_value, status } or null
 
+// Grouped filter expression state (one-level grouping).
+// Conditions are derived from the state above; groups reference condition ids.
+let filterGroups = [];          // [{ id, op: 'and'|'or', memberIds: [condId,...] }]
+let topLevelOp = 'and';         // 'and' | 'or' — how top-level groups/singletons combine
+let conditionsById = {};        // id -> condition descriptor
+let filterGroupIdCounter = 0;
+let selectedGroupIds = new Set();// group ids selected by clicking the group box (for nesting)
+let selectedChipIds = new Set();  // chip ids selected by clicking a chip
+
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const uploadSection = document.getElementById('upload-section');
@@ -68,54 +77,281 @@ const solveLpBtn = document.getElementById('solve-lp-btn');
 const solveMipBtn = document.getElementById('solve-mip-btn');
 const filterPill = document.getElementById('active-filter-pill');
 
-function renderChipGroup(label, values, op, kind) {
-    // Build a "Label: [v1 ×] op [v2 ×] ..." group. The op is clickable to flip it
-    // when there are ≥2 chips; otherwise it's hidden.
-    var chips = values.map(function(v) {
-        return '<span class="filter-chip">' + escapeHtml(v.display) +
-               '<button class="filter-chip-remove" data-action="remove-' + kind + '"' +
-               ' data-value="' + escapeAttr(v.raw) + '" title="Remove">×</button></span>';
+function combineBools(vals, op) {
+    if (op === 'or') return vals.some(Boolean);
+    return vals.every(Boolean);
+}
+
+// Build the current set of active filter conditions (chips) from filter state.
+function buildConditions() {
+    conditionsById = {};
+    function add(c) { conditionsById[c.id] = c; }
+
+    if (activeTypeFilter.size > 0) {
+        activeTypeFilter.forEach(function(t) {
+            add({
+                id: 'type:' + t, kind: 'type', value: t, label: t,
+                matches: function(con) { return (con._tags || []).indexOf(t) !== -1; }
+            });
+        });
+    }
+    if (activeVarFilter.size > 0) {
+        activeVarFilter.forEach(function(vi) {
+            // Show the variable exactly as it appears in the constraint rows (x<index>).
+            add({
+                id: 'var:' + vi, kind: 'var', value: vi, label: 'x' + vi,
+                matches: function(con) { return con.terms.some(function(t) { return String(t.var_index) === String(vi); }); }
+            });
+        });
+    }
+    if (activeConNameFilter) {
+        var text = activeConNameFilter;
+        add({
+            id: 'conname:' + text, kind: 'conname', value: text, label: 'name "' + text + '"',
+            matches: function(con) { return con.name.toLowerCase().indexOf(text.toLowerCase()) !== -1; }
+        });
+    }
+    if (activeNzFilterValue != null) {
+        var op = activeNzFilterOp, val = activeNzFilterValue;
+        add({
+            id: 'nz:' + op + ':' + val, kind: 'nz', value: val,
+            label: 'nz ' + nzOpSymbol(op) + ' ' + val,
+            matches: function(con) {
+                var n = con.terms ? con.terms.length : 0;
+                if (op === '=') return n === val;
+                if (op === '>=') return n >= val;
+                return n <= val;
+            }
+        });
+    }
+    if (activeVarNameFilter) {
+        var vtext = activeVarNameFilter;
+        add({
+            id: 'varname:' + vtext, kind: 'varname', value: vtext, label: 'var name "' + vtext + '"',
+            matches: function() { return true; }
+        });
+    }
+    if (activeComponentFilter) {
+        var cidx = activeComponentFilter.stat.index;
+        add({
+            id: 'component:' + cidx, kind: 'component', value: cidx, label: 'component ' + cidx,
+            matches: function(con, conIdx) { return activeComponentFilter.rowSet.has(conIdx); }
+        });
+    }
+    if (activeConstraintVarFilter != null) {
+        var conIdx = activeConstraintVarFilter;
+        var conName = modelData && modelData.constraints[conIdx] ? modelData.constraints[conIdx].name : '#' + conIdx;
+        add({
+            id: 'convar:' + conIdx, kind: 'convar', value: conIdx, label: 'shares vars w/ ' + conName,
+            matches: function(con) {
+                var c = modelData.constraints[conIdx];
+                if (!c) return false;
+                var varSet = new Set(c.terms.map(function(t) { return t.var_index; }));
+                return con.terms.some(function(t) { return varSet.has(t.var_index); });
+            }
+        });
+    }
+}
+
+function isGroupId(id) {
+    return filterGroups.some(function(g) { return g.id === id; });
+}
+
+// Collect every condition-chip id that is referenced anywhere in the group tree.
+function collectGroupedChipIds() {
+    var set = {};
+    function walk(g) {
+        g.memberIds.forEach(function(id) {
+            var sub = filterGroups.filter(function(x) { return x.id === id; })[0];
+            if (sub) walk(sub); else set[id] = true;
+        });
+    }
+    filterGroups.forEach(walk);
+    return set;
+}
+
+// Top-level items = groups not referenced by another group + ungrouped chips.
+function getTopLevelItems() {
+    var childGroupIds = {};
+    filterGroups.forEach(function(g) { g.memberIds.forEach(function(id) { if (isGroupId(id)) childGroupIds[id] = true; }); });
+    var groupedChips = collectGroupedChipIds();
+    var items = [];
+    filterGroups.forEach(function(g) { if (!childGroupIds[g.id]) items.push({ type: 'group', g: g }); });
+    Object.keys(conditionsById).forEach(function(id) {
+        var c = conditionsById[id];
+        if (c.kind !== 'varname' && !groupedChips[id]) items.push({ type: 'chip', c: c });
     });
-    var sep = ' <button class="filter-op" data-action="toggle-' + kind + '-op" title="Click to toggle">' +
-              escapeHtml(op) + '</button> ';
-    var body = chips.length > 1 ? chips.join(sep) : chips.join('');
-    return '<span class="filter-group"><span class="filter-label">' + label + ':</span> ' + body + '</span>';
+    return items;
+}
+
+// Recursively evaluate a group (which may contain chips and/or nested groups).
+function evalGroup(g, con, conIdx) {
+    var res = g.memberIds.map(function(id) {
+        var sub = filterGroups.filter(function(x) { return x.id === id; })[0];
+        if (sub) return evalGroup(sub, con, conIdx);
+        var c = conditionsById[id];
+        return c ? c.matches(con, conIdx) : true;
+    });
+    return combineBools(res, g.op);
+}
+
+// Evaluate the filter expression (nested groups + singletons, combined by topLevelOp).
+function constraintMatchesActiveFilters(con, conIdx) {
+    var conds = Object.keys(conditionsById).map(function(id) { return conditionsById[id]; });
+    if (conds.length === 0) return true;
+    var items = getTopLevelItems();
+    var results = items.map(function(item) {
+        if (item.type === 'group') return evalGroup(item.g, con, conIdx);
+        return item.c.matches(con, conIdx);
+    });
+    if (results.length === 0) return true;
+    return combineBools(results, topLevelOp);
+}
+
+function renderFilterChip(c, nonGroupable) {
+    var ng = nonGroupable ? ' non-groupable' : '';
+    var sel = (!nonGroupable && selectedChipIds.has(c.id)) ? ' selected' : '';
+    var tip = nonGroupable ? 'Not part of the filter expression' : 'Drag to marquee · click to select';
+    return '<span class="filter-chip' + sel + ng + '" data-cond-id="' + c.id + '" title="' + tip + '">' +
+        escapeHtml(c.label) +
+        '<button class="filter-chip-remove" data-action="remove-cond" data-cond-id="' + c.id + '" title="Remove">×</button>' +
+        '</span>';
+}
+
+function renderFilterGroupBox(g) {
+    var selCls = selectedGroupIds.has(g.id) ? ' selected' : '';
+    var html = '<span class="filter-group-box' + selCls + '" data-group-id="' + g.id + '" title="Drag to marquee · click to select group">';
+    g.memberIds.forEach(function(id, i) {
+        if (i > 0) {
+            html += '<button class="filter-op" data-action="toggle-group-op" data-group-id="' + g.id + '" title="Toggle this group\'s operator">' + g.op.toUpperCase() + '</button> ';
+        }
+        var sub = filterGroups.filter(function(x) { return x.id === id; })[0];
+        if (sub) {
+            html += renderFilterGroupBox(sub);
+        } else {
+            var c = conditionsById[id];
+            if (c) html += renderFilterChip(c, false);
+        }
+    });
+    html += '<button class="filter-group-remove" data-action="ungroup" data-group-id="' + g.id + '" title="Remove this group">×</button>';
+    html += '</span>';
+    return html;
 }
 
 function updateFilterPill() {
     if (!filterPill) return;
-    var parts = [];
-    if (activeTypeFilter.size > 0) {
-        var typeValues = Array.from(activeTypeFilter).map(function(t) { return { raw: t, display: t }; });
-        parts.push(renderChipGroup('Type', typeValues, typeFilterOp, 'type'));
-    }
-    if (activeVarFilter.size > 0) {
-        var varValues = Array.from(activeVarFilter).map(function(vi) {
-            var name = modelData && modelData.variables[vi] ? modelData.variables[vi].name : 'x' + vi;
-            return { raw: vi, display: name };
-        });
-        parts.push(renderChipGroup('Contains', varValues, varFilterOp, 'var'));
-    }
-    if (activeComponentFilter) parts.push('<span class="filter-group"><span class="filter-label">Component:</span> <strong>' + activeComponentFilter.stat.index + '</strong></span>');
-    if (activeConstraintVarFilter != null) {
-        var cName = modelData && modelData.constraints[activeConstraintVarFilter] ? modelData.constraints[activeConstraintVarFilter].name : '#' + activeConstraintVarFilter;
-        parts.push('<span class="filter-group"><span class="filter-label">Constraint:</span> <strong>' + escapeHtml(cName) + '</strong></span>');
-    }
-    if (activeConNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Con. name:</span> <strong>' + escapeHtml(activeConNameFilter) + '</strong></span>');
-    if (activeNzFilterValue != null) parts.push('<span class="filter-group"><span class="filter-label">Nonzeros ' + nzOpSymbol(activeNzFilterOp) + ':</span> <strong>' + activeNzFilterValue + '</strong></span>');
-    if (activeVarNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Var. name:</span> <strong>' + escapeHtml(activeVarNameFilter) + '</strong></span>');
-    if (parts.length === 0) {
+    buildConditions();
+    var conds = Object.keys(conditionsById).map(function(id) { return conditionsById[id]; });
+    if (conds.length === 0) {
         filterPill.classList.add('hidden');
+        selectedGroupIds = new Set();
+        selectedChipIds = new Set();
         updateHashState();
         return;
     }
-    filterPill.innerHTML = '<span class="filter-label filter-label-lead">Filtered by</span> ' + parts.join(' <span class="filter-group-sep">+</span> ') +
-        ' <button class="filter-clear" data-action="clear-all">Clear all</button>';
+    // Drop any selected-group references that no longer exist.
+    var stale = [];
+    selectedGroupIds.forEach(function(id) { if (!isGroupId(id)) stale.push(id); });
+    stale.forEach(function(id) { selectedGroupIds.delete(id); });
+    var varname = conds.filter(function(c) { return c.kind === 'varname'; });
+    var topItems = getTopLevelItems();
+
+    var html = '<span class="filter-label filter-label-lead">Filtered by</span> ';
+    topItems.forEach(function(item, i) {
+        if (i > 0) {
+            html += '<button class="filter-op" data-action="toggle-topop" title="How the top-level items combine">' + topLevelOp.toUpperCase() + '</button> ';
+        }
+        if (item.type === 'group') {
+            html += renderFilterGroupBox(item.g);
+        } else {
+            html += renderFilterChip(item.c, false);
+        }
+    });
+    varname.forEach(function(c) { html += renderFilterChip(c, true); });
+    html += ' <button class="filter-clear" data-action="clear-all">Clear all</button>';
+
+    filterPill.innerHTML = html + '<div class="filter-marquee" hidden></div>';
     filterPill.classList.remove('hidden');
     updateHashState();
 }
 
-// Delegated handlers for the filter pill (chip remove, operator toggle, clear all).
+// Wrap the given ids (>= 2) into a new group (default AND). Ids may be condition
+// chip ids OR other group ids (nesting).
+function createGroup(op, memberIds) {
+    if (!memberIds || memberIds.length < 2) return;
+    var gid = 'g' + (filterGroupIdCounter++);
+    // Detach the ids from any group they currently belong to (so they become members of the new group).
+    filterGroups.forEach(function(g) {
+        g.memberIds = g.memberIds.filter(function(id) { return memberIds.indexOf(id) === -1; });
+    });
+    filterGroups = filterGroups.filter(function(g) { return g.memberIds.length > 1; });
+    filterGroups.push({ id: gid, op: op, memberIds: memberIds });
+    applyFilters();
+}
+
+// If >= 2 groups are currently selected by clicking, wrap them into a parent group.
+function maybeCommitSelection() {
+    var memberIds = Array.from(selectedGroupIds).concat(Array.from(selectedChipIds));
+    if (memberIds.length >= 2) {
+        selectedGroupIds = new Set();
+        selectedChipIds = new Set();
+        createGroup('and', memberIds);
+        return true;
+    }
+    return false;
+}
+
+function removeFilterCondition(condId) {
+    var c = conditionsById[condId];
+    if (!c) return;
+    switch (c.kind) {
+        case 'type':
+            activeTypeFilter.delete(c.value);
+            var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(c.value) + '"]');
+            if (tag) tag.classList.remove('active');
+            break;
+        case 'var':
+            activeVarFilter.delete(c.value);
+            document.querySelectorAll('.var-hover[data-var="' + c.value + '"]').forEach(function(s) {
+                s.classList.remove('var-highlight-persist');
+            });
+            break;
+        case 'conname':
+            activeConNameFilter = '';
+            var cnf = document.getElementById('con-name-filter');
+            if (cnf) cnf.value = '';
+            break;
+        case 'nz':
+            activeNzFilterValue = null;
+            activeNzFilterOp = '<=';
+            var cnz = document.getElementById('con-nz-filter');
+            if (cnz) cnz.value = '';
+            var cnzo = document.getElementById('con-nz-op');
+            if (cnzo) cnzo.value = '<=';
+            break;
+        case 'varname':
+            activeVarNameFilter = '';
+            var vnf = document.getElementById('var-name-filter');
+            if (vnf) vnf.value = '';
+            break;
+        case 'component':
+            activeComponentFilter = null;
+            var cb = document.getElementById('component-filter-banner');
+            if (cb) cb.classList.add('hidden');
+            break;
+        case 'convar':
+            activeConstraintVarFilter = null;
+            var cvb = document.getElementById('constraint-var-filter-banner');
+            if (cvb) cvb.classList.add('hidden');
+            break;
+    }
+    filterGroups.forEach(function(g) { g.memberIds = g.memberIds.filter(function(id) { return id !== condId; }); });
+    filterGroups = filterGroups.filter(function(g) { return g.memberIds.length > 1; });
+    applyFilters();
+    renderVariablesInit();
+}
+
+// Delegated handlers for the filter pill (chip remove, group ops, clear all).
 if (filterPill) {
     filterPill.addEventListener('click', function(e) {
         var btn = e.target.closest('[data-action]');
@@ -123,82 +359,138 @@ if (filterPill) {
         var action = btn.dataset.action;
         if (action === 'clear-all') {
             clearAllFilters();
-        } else if (action === 'remove-type') {
-            removeTypeFilter(btn.dataset.value);
-        } else if (action === 'remove-var') {
-            removeVarFilter(btn.dataset.value);
-        } else if (action === 'toggle-type-op') {
-            typeFilterOp = typeFilterOp === 'or' ? 'and' : 'or';
+        } else if (action === 'remove-cond') {
+            removeFilterCondition(btn.dataset.condId);
+        } else if (action === 'toggle-group-op') {
+            var g = filterGroups.filter(function(g) { return g.id === btn.dataset.groupId; })[0];
+            if (g) { g.op = g.op === 'and' ? 'or' : 'and'; applyFilters(); }
+        } else if (action === 'ungroup') {
+            filterGroups = filterGroups.filter(function(g) { return g.id !== btn.dataset.groupId; });
             applyFilters();
-        } else if (action === 'toggle-var-op') {
-            varFilterOp = varFilterOp === 'and' ? 'or' : 'and';
+        } else if (action === 'toggle-topop') {
+            topLevelOp = topLevelOp === 'and' ? 'or' : 'and';
             applyFilters();
         }
     });
 }
 
-function removeTypeFilter(type) {
-    if (!activeTypeFilter.delete(type)) return;
-    var tag = document.querySelector('.type-tag[data-type="' + CSS.escape(type) + '"]');
-    if (tag) tag.classList.remove('active');
-    applyFilters();
+// Rubber-band selection of filter chips in the pill.
+var selDrag = false;
+var selMoved = false;
+var selStartX = 0, selStartY = 0;
+
+function startMarquee(e) {
+    var marquee = filterPill.querySelector('.filter-marquee');
+    if (!marquee) return;
+    var rect = filterPill.getBoundingClientRect();
+    marquee.hidden = false;
+    marquee.style.left = (e.clientX - rect.left) + 'px';
+    marquee.style.top = (e.clientY - rect.top) + 'px';
+    marquee.style.width = '0px';
+    marquee.style.height = '0px';
 }
 
-function constraintMatchesTypeFilter(con) {
-    if (activeTypeFilter.size === 0) return true;
-    var tags = con._tags || [];
-    if (typeFilterOp === 'and') {
-        for (var t of activeTypeFilter) { if (tags.indexOf(t) === -1) return false; }
-        return true;
-    }
-    for (var t of activeTypeFilter) { if (tags.indexOf(t) !== -1) return true; }
-    return false;
+function moveMarquee(e) {
+    var marquee = filterPill.querySelector('.filter-marquee');
+    if (!marquee) return;
+    var rect = filterPill.getBoundingClientRect();
+    var dx = e.clientX - selStartX;
+    var dy = e.clientY - selStartY;
+    marquee.style.left = (Math.min(e.clientX, selStartX) - rect.left) + 'px';
+    marquee.style.top = (Math.min(e.clientY, selStartY) - rect.top) + 'px';
+    marquee.style.width = Math.abs(dx) + 'px';
+    marquee.style.height = Math.abs(dy) + 'px';
 }
 
-function constraintMatchesVarFilter(con) {
-    if (activeVarFilter.size === 0) return true;
-    var present = new Set(con.terms.map(function(t) { return String(t.var_index); }));
-    if (varFilterOp === 'or') {
-        for (var v of activeVarFilter) { if (present.has(v)) return true; }
-        return false;
-    }
-    for (var v of activeVarFilter) { if (!present.has(v)) return false; }
-    return true;
+if (filterPill) {
+    filterPill.addEventListener('mousedown', function(e) {
+        if (e.target.closest('button')) return;
+        selDrag = true;
+        selMoved = false;
+        selStartX = e.clientX;
+        selStartY = e.clientY;
+        startMarquee(e);
+    });
+    window.addEventListener('mousemove', function(e) {
+        if (!selDrag) return;
+        var dx = e.clientX - selStartX;
+        var dy = e.clientY - selStartY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) selMoved = true;
+        moveMarquee(e);
+    });
+    window.addEventListener('mouseup', function(e) {
+        if (!selDrag) return;
+        selDrag = false;
+        var marquee = filterPill.querySelector('.filter-marquee');
+        if (marquee) marquee.hidden = true;
+
+        if (!selMoved) {
+            // Plain click: toggle selection of a whole group (its box background) or of a chip.
+            if (!e.target.closest('[data-action]')) {
+                var box = e.target.closest('.filter-group-box');
+                var chip = e.target.closest('.filter-chip');
+                if (box && !chip) {
+                    var gid = box.dataset.groupId;
+                    if (selectedGroupIds.has(gid)) selectedGroupIds.delete(gid);
+                    else selectedGroupIds.add(gid);
+                    if (!maybeCommitSelection()) updateFilterPill();
+                } else if (chip && !chip.classList.contains('non-groupable')) {
+                    var cid = chip.dataset.condId;
+                    if (selectedChipIds.has(cid)) selectedChipIds.delete(cid);
+                    else selectedChipIds.add(cid);
+                    if (!maybeCommitSelection()) updateFilterPill();
+                }
+            }
+            return;
+        }
+
+        // Marquee: gather chips overlapping the drag rectangle; combine with any group(s)
+        // selected by clicking (option A), then wrap them into a group (>= 2).
+        var rect = filterPill.getBoundingClientRect();
+        var x0 = Math.min(e.clientX, selStartX) - rect.left;
+        var y0 = Math.min(e.clientY, selStartY) - rect.top;
+        var x1 = Math.max(e.clientX, selStartX) - rect.left;
+        var y1 = Math.max(e.clientY, selStartY) - rect.top;
+        var ids = [];
+        filterPill.querySelectorAll('.filter-chip').forEach(function(chip) {
+            if (chip.classList.contains('non-groupable')) return;
+            // Skip chips that live inside a group already selected as a whole.
+            var skip = false, el = chip.parentElement;
+            while (el && el !== filterPill) {
+                if (el.classList && el.classList.contains('filter-group-box') && selectedGroupIds.has(el.dataset.groupId)) { skip = true; break; }
+                el = el.parentElement;
+            }
+            if (skip) return;
+            var r = chip.getBoundingClientRect();
+            var cr = { left: r.left - rect.left, top: r.top - rect.top, right: r.left - rect.left + r.width, bottom: r.top - rect.top + r.height };
+            if (!(cr.right < x0 || cr.left > x1 || cr.bottom < y0 || cr.top > y1)) {
+                ids.push(chip.dataset.condId);
+            }
+        });
+        var memberSet = new Set(selectedGroupIds);
+        selectedChipIds.forEach(function(id) { memberSet.add(id); });
+        ids.forEach(function(id) { memberSet.add(id); });
+        selectedGroupIds = new Set();
+        selectedChipIds = new Set();
+        var memberIds = Array.from(memberSet);
+        if (memberIds.length >= 2) createGroup('and', memberIds);
+    });
 }
 
 function nzOpSymbol(op) {
     switch (op) {
         case '=': return '=';
-        case '>=': return '&ge;';
+        case '>=': return '\u2265';   // ≥
         case '<=':
-        default: return '&le;';
+        default: return '\u2264';     // ≤
     }
-}
-
-function constraintMatchesNonzerosFilter(con) {
-    if (activeNzFilterValue == null) return true;
-    var n = con.terms ? con.terms.length : 0;
-    switch (activeNzFilterOp) {
-        case '=': return n === activeNzFilterValue;
-        case '>=': return n >= activeNzFilterValue;
-        case '<=':
-        default: return n <= activeNzFilterValue;
-    }
-}
-
-function removeVarFilter(varIdx) {
-    if (!activeVarFilter.delete(varIdx)) return;
-    if (activeVarFilter.size === 0) {
-        document.querySelectorAll('.var-hover').forEach(function(s) { s.classList.remove('var-highlight-persist'); });
-    } else {
-        document.querySelectorAll('.var-hover[data-var="' + varIdx + '"]').forEach(function(s) {
-            s.classList.remove('var-highlight-persist');
-        });
-    }
-    applyFilters();
 }
 
 function clearAllFilters() {
+    filterGroups = [];
+    topLevelOp = 'and';
+    selectedGroupIds = new Set();
+    selectedChipIds = new Set();
     if (activeTypeFilter.size > 0) {
         activeTypeFilter.clear();
         typeFilterOp = 'or';
@@ -929,10 +1221,10 @@ document.getElementById('solve-visible-btn').addEventListener('click', async fun
         ? filteredConIndices.slice()
         : Array.from({ length: modelData.constraints.length }, function(_, i) { return i; });
 
-    // Apply type and var filters
+    // Apply the active filter expression
+    buildConditions();
     var visible = allIndices.filter(function(i) {
-        var c = modelData.constraints[i];
-        return constraintMatchesTypeFilter(c) && constraintMatchesVarFilter(c);
+        return constraintMatchesActiveFilters(modelData.constraints[i], i);
     });
 
     if (visible.length === 0) { showToast('No visible constraints'); return; }
@@ -1606,6 +1898,10 @@ function showResults() {
     activeVarFilter = new Set();
     varFilterOp = 'and';
     activeComponentFilter = null;
+    filterGroups = [];
+    topLevelOp = 'and';
+    selectedGroupIds = new Set();
+    selectedChipIds = new Set();
     lpSolution = null;
     solveLpBtn.textContent = 'Solve LP';
     solveLpBtn.classList.remove('active');
@@ -1737,6 +2033,10 @@ function classifyConstraints() {
     modelData._constraintTypes = counts;
     activeTypeFilter = new Set();
     typeFilterOp = 'or';
+    filterGroups = [];
+    topLevelOp = 'and';
+    selectedGroupIds = new Set();
+    selectedChipIds = new Set();
 }
 
 function applyFilters() {
@@ -2529,34 +2829,19 @@ let filteredConIndices = null; // null = show all, array = filtered indices
 function renderConstraintsInit() {
     constraintsList.innerHTML = '';
     constraintsShown = 0;
-    if (activeConstraintVarFilter !== null) {
-        const c = modelData.constraints[activeConstraintVarFilter];
-        const varSet = new Set(c.terms.map(t => t.var_index));
-        const conIndices = [];
-        modelData.constraints.forEach((con, i) => {
-            if (con.terms.some(t => varSet.has(t.var_index))) conIndices.push(i);
-        });
-        filteredConIndices = conIndices;
-    } else {
-        filteredConIndices = activeComponentFilter
-            ? Array.from(activeComponentFilter.rowSet).sort(function(a, b) { return a - b; })
-            : null;
-    }
+    buildConditions();
 
-    // Apply type, variable, name, and nonzeros filters on top
-    if (activeTypeFilter.size > 0 || activeVarFilter.size > 0 || activeConNameFilter || activeNzFilterValue != null) {
-        const base = filteredConIndices
-            ? filteredConIndices
-            : modelData.constraints.map((_, i) => i);
-        const nameLower = activeConNameFilter ? activeConNameFilter.toLowerCase() : '';
-        filteredConIndices = base.filter(i => {
-            const con = modelData.constraints[i];
-            const typeOk = constraintMatchesTypeFilter(con);
-            const varOk = constraintMatchesVarFilter(con);
-            const nameOk = !activeConNameFilter || con.name.toLowerCase().includes(nameLower);
-            const nzOk = constraintMatchesNonzerosFilter(con);
-            return typeOk && varOk && nameOk && nzOk;
-        });
+    // Evaluate the unified filter expression over all constraints.
+    var condCount = Object.keys(conditionsById).length;
+    if (condCount > 0) {
+        filteredConIndices = [];
+        for (var i = 0; i < modelData.constraints.length; i++) {
+            if (constraintMatchesActiveFilters(modelData.constraints[i], i)) {
+                filteredConIndices.push(i);
+            }
+        }
+    } else {
+        filteredConIndices = null;
     }
 
     const total = filteredConIndices ? filteredConIndices.length : modelData.constraints.length;
@@ -2944,6 +3229,10 @@ function resetConstraintFilters() {
     activeNzFilterOp = '<=';
     activeComponentFilter = null;
     activeConstraintVarFilter = null;
+    filterGroups = [];
+    topLevelOp = 'and';
+    selectedGroupIds = new Set();
+    selectedChipIds = new Set();
     const cnf = document.getElementById('con-name-filter');
     if (cnf) cnf.value = '';
     const cnz = document.getElementById('con-nz-filter');
@@ -4943,6 +5232,10 @@ window.addEventListener('popstate', (e) => {
 function applyHashFilters(params) {
     if (!params) params = parseHashParams();
     if (!params.type && !params.var) return;
+    filterGroups = [];
+    selectedGroupIds = new Set();
+    selectedChipIds = new Set();
+    topLevelOp = 'and';
     if (params.type && modelData) {
         params.type.split(',').forEach(function(t) {
             if (!t) return;
@@ -4961,6 +5254,13 @@ function applyHashFilters(params) {
             });
         });
         if (params.varOp === 'and' || params.varOp === 'or') varFilterOp = params.varOp;
+    }
+    // Preserve legacy per-kind operators by seeding default groups on URL load.
+    if (activeTypeFilter.size >= 2) {
+        filterGroups.push({ id: 'g' + (filterGroupIdCounter++), op: typeFilterOp, memberIds: Array.from(activeTypeFilter).map(function(t) { return 'type:' + t; }) });
+    }
+    if (activeVarFilter.size >= 2) {
+        filterGroups.push({ id: 'g' + (filterGroupIdCounter++), op: varFilterOp, memberIds: Array.from(activeVarFilter).map(function(v) { return 'var:' + v; }) });
     }
     applyFilters();
     var constraintsDetails = constraintsList.closest('details');
@@ -5147,4 +5447,3 @@ document.addEventListener('keydown', function(e) {
         window.location.href = './instances.html';
     }
 });
-
