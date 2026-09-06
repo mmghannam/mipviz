@@ -1550,6 +1550,55 @@ main {
     width: 100%;
 }
 
+/* Constraints filter bar: name + nonzeros bound side by side */
+.constraints-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0 2px;
+}
+.constraints-filter-bar .name-filter-input {
+    flex: 1;
+    width: auto;
+    margin: 0;
+}
+.constraints-filter-bar .name-filter-input:focus {
+    width: auto;
+}
+.con-nz-filter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+.con-nz-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.con-nz-input {
+    width: 72px;
+    margin: 0;
+    padding: 5px 8px;
+    -moz-appearance: textfield;
+}
+.con-nz-input:focus {
+    width: 72px;
+}
+.con-nz-input::-webkit-outer-spin-button,
+.con-nz-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.con-nz-op {
+    width: 52px;
+    margin: 0;
+    padding: 5px 6px;
+    cursor: pointer;
+}
+.con-nz-op:focus {
+    width: 52px;
+}
+
 /* Variables */
 .variables-sort-bar {
     display: flex;

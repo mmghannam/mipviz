@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css"/>
-    <link rel="stylesheet" href="./style.css?v=68">
+    <link rel="stylesheet" href="./style.css?v=72">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -202,7 +202,18 @@
             <!-- Constraints -->
             <details class="collapsible">
                 <summary class="section-header"><h3>Constraints</h3><span id="constraints-count" class="constraints-count"></span><span class="chevron"></span></summary>
-                <input type="text" id="con-name-filter" class="nav-search name-filter-input" placeholder="Filter by name…">
+                <div class="constraints-filter-bar">
+                    <input type="text" id="con-name-filter" class="nav-search name-filter-input" placeholder="Filter by name…">
+                    <label class="con-nz-filter" title="Show only constraints whose nonzero count satisfies the bound">
+                        <span class="con-nz-label">nz</span>
+                        <select id="con-nz-op" class="nav-search con-nz-op" aria-label="Nonzeros operator">
+                            <option value="<=" selected>&le;</option>
+                            <option value="=">=</option>
+                            <option value=">=">&ge;</option>
+                        </select>
+                        <input type="number" id="con-nz-filter" class="nav-search con-nz-input" placeholder="any" min="0" step="1">
+                    </label>
+                </div>
                 <div class="constraints-toolbar">
                     <button id="plot-all-lr-btn" class="btn-plot-all-lr" onclick="if(typeof addAllVisibleToLagrangian==='function')addAllVisibleToLagrangian()">Plot all visible L(&#955;)</button>
                     <button id="solve-visible-btn" class="btn-plot-all-lr">Solve visible LP</button>
@@ -246,10 +257,10 @@
     <script src="./mipviz_wasm.js" onload="window.__wasmAvailable=true" onerror=""></script>
     <script src="./theme.js?v=1"></script>
     <script src="./config.js?v=1"></script>
-    <script src="./api.js?v=4"></script>
+    <script src="./api.js?v=5"></script>
     <script src="./marked.min.js"></script>
     <script src="./nav-search.js?v=2"></script>
-    <script src="./app.js?v=55"></script>
+    <script src="./app.js?v=61"></script>
     <script src="./dirpicker.js?v=1"></script>
     <script src="./lagrangian.js?v=7"></script>
     <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>

@@ -41,6 +41,8 @@ let activeVarFilter = new Set();    // Set<string> of variable indices (as strin
 let varFilterOp = 'and';            // 'and' | 'or'
 let activeConNameFilter = '';
 let activeVarNameFilter = '';
+let activeNzFilterValue = null;    // number | null — nonzero-count bound (uses activeNzFilterOp)
+let activeNzFilterOp = '<=';        // '<=' | '=' | '>='
 let activeComponentFilter = null; // { index, rowSet, colSet } or null
 let activeConstraintVarFilter = null; // constraint index or null
 let lpSolution = null; // { col_values, objective_value, status } or null
@@ -100,6 +102,7 @@ function updateFilterPill() {
         parts.push('<span class="filter-group"><span class="filter-label">Constraint:</span> <strong>' + escapeHtml(cName) + '</strong></span>');
     }
     if (activeConNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Con. name:</span> <strong>' + escapeHtml(activeConNameFilter) + '</strong></span>');
+    if (activeNzFilterValue != null) parts.push('<span class="filter-group"><span class="filter-label">Nonzeros ' + nzOpSymbol(activeNzFilterOp) + ':</span> <strong>' + activeNzFilterValue + '</strong></span>');
     if (activeVarNameFilter) parts.push('<span class="filter-group"><span class="filter-label">Var. name:</span> <strong>' + escapeHtml(activeVarNameFilter) + '</strong></span>');
     if (parts.length === 0) {
         filterPill.classList.add('hidden');
@@ -163,6 +166,26 @@ function constraintMatchesVarFilter(con) {
     return true;
 }
 
+function nzOpSymbol(op) {
+    switch (op) {
+        case '=': return '=';
+        case '>=': return '&ge;';
+        case '<=':
+        default: return '&le;';
+    }
+}
+
+function constraintMatchesNonzerosFilter(con) {
+    if (activeNzFilterValue == null) return true;
+    var n = con.terms ? con.terms.length : 0;
+    switch (activeNzFilterOp) {
+        case '=': return n === activeNzFilterValue;
+        case '>=': return n >= activeNzFilterValue;
+        case '<=':
+        default: return n <= activeNzFilterValue;
+    }
+}
+
 function removeVarFilter(varIdx) {
     if (!activeVarFilter.delete(varIdx)) return;
     if (activeVarFilter.size === 0) {
@@ -196,6 +219,14 @@ function clearAllFilters() {
         activeConNameFilter = '';
         var cnf = document.getElementById('con-name-filter');
         if (cnf) cnf.value = '';
+    }
+    if (activeNzFilterValue != null) {
+        activeNzFilterValue = null;
+        activeNzFilterOp = '<=';
+        var cnz = document.getElementById('con-nz-filter');
+        if (cnz) cnz.value = '';
+        var cnzo = document.getElementById('con-nz-op');
+        if (cnzo) cnzo.value = '<=';
     }
     if (activeVarNameFilter) {
         activeVarNameFilter = '';
@@ -1471,6 +1502,34 @@ conNameFilterInput.addEventListener('input', function() {
     }, 500);
 });
 
+// Nonzeros filter for constraints
+var conNzFilterInput = document.getElementById('con-nz-filter');
+var conNzOpInput = document.getElementById('con-nz-op');
+var conNzDebounce = null;
+if (conNzFilterInput) {
+    conNzFilterInput.addEventListener('input', function() {
+        clearTimeout(conNzDebounce);
+        conNzDebounce = setTimeout(function() {
+            var raw = conNzFilterInput.value.trim();
+            if (raw === '') {
+                activeNzFilterValue = null;
+            } else {
+                var n = parseInt(raw, 10);
+                activeNzFilterValue = (isNaN(n) || n < 0) ? null : n;
+            }
+            renderConstraintsInit();
+            updateFilterPill();
+        }, 300);
+    });
+}
+if (conNzOpInput) {
+    conNzOpInput.addEventListener('change', function() {
+        activeNzFilterOp = conNzOpInput.value;
+        renderConstraintsInit();
+        updateFilterPill();
+    });
+}
+
 // Name filter for variables
 var varNameFilterInput = document.getElementById('var-name-filter');
 var varNameDebounce = null;
@@ -2484,8 +2543,8 @@ function renderConstraintsInit() {
             : null;
     }
 
-    // Apply type, variable, and name filters on top
-    if (activeTypeFilter.size > 0 || activeVarFilter.size > 0 || activeConNameFilter) {
+    // Apply type, variable, name, and nonzeros filters on top
+    if (activeTypeFilter.size > 0 || activeVarFilter.size > 0 || activeConNameFilter || activeNzFilterValue != null) {
         const base = filteredConIndices
             ? filteredConIndices
             : modelData.constraints.map((_, i) => i);
@@ -2495,7 +2554,8 @@ function renderConstraintsInit() {
             const typeOk = constraintMatchesTypeFilter(con);
             const varOk = constraintMatchesVarFilter(con);
             const nameOk = !activeConNameFilter || con.name.toLowerCase().includes(nameLower);
-            return typeOk && varOk && nameOk;
+            const nzOk = constraintMatchesNonzerosFilter(con);
+            return typeOk && varOk && nameOk && nzOk;
         });
     }
 
@@ -2880,10 +2940,16 @@ function resetConstraintFilters() {
     activeVarFilter.clear();
     activeConNameFilter = '';
     activeVarNameFilter = '';
+    activeNzFilterValue = null;
+    activeNzFilterOp = '<=';
     activeComponentFilter = null;
     activeConstraintVarFilter = null;
     const cnf = document.getElementById('con-name-filter');
     if (cnf) cnf.value = '';
+    const cnz = document.getElementById('con-nz-filter');
+    if (cnz) cnz.value = '';
+    const cnzo = document.getElementById('con-nz-op');
+    if (cnzo) cnzo.value = '<=';
     const vnf = document.getElementById('var-name-filter');
     if (vnf) vnf.value = '';
 }
