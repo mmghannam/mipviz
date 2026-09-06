@@ -2857,12 +2857,17 @@ function renderMoreConstraints() {
     const end = Math.min(constraintsShown + BATCH_SIZE, totalCount);
 
     const fragment = document.createDocumentFragment();
+    const newRows = [];
     for (let j = constraintsShown; j < end; j++) {
         const i = indices ? indices[j] : j;
-        fragment.appendChild(createConstraintRow(constraints[i], i));
+        const row = createConstraintRow(constraints[i], i);
+        newRows.push(row);
+        fragment.appendChild(row);
     }
     constraintsList.appendChild(fragment);
     constraintsShown = end;
+    // Right-align the bound only when the LHS wraps to more than one line.
+    newRows.forEach(maybeCollapseBound);
 
     if (constraintsShown >= totalCount) {
         showMoreBtn.classList.add('hidden');
@@ -2870,6 +2875,25 @@ function renderMoreConstraints() {
         showMoreBtn.classList.remove('hidden');
         const remaining = totalCount - constraintsShown;
         showMoreBtn.textContent = 'Show ' + Math.min(BATCH_SIZE, remaining) + ' more of ' + remaining + ' remaining';
+    }
+}
+
+// If the LHS fits on a single line, drop the right-aligned bound so it sits inline
+// right after the coefficients. Kept (right column) only for long constraints that wrap.
+function maybeCollapseBound(row, retried) {
+    const expr = row.querySelector('.constraint-expr');
+    if (!expr) return;
+    const lhs = expr.querySelector('.constraint-lhs');
+    if (!lhs) return;
+    const h = lhs.getBoundingClientRect().height;
+    if (h === 0) {
+        // Not laid out yet (constraints section may be collapsed); retry once.
+        if (!retried) requestAnimationFrame(function() { maybeCollapseBound(row, true); });
+        return;
+    }
+    const lineHeight = parseFloat(getComputedStyle(lhs).lineHeight) || 20;
+    if (h <= lineHeight * 1.6) {
+        expr.classList.remove('constraint-expr-split');
     }
 }
 
@@ -2900,14 +2924,37 @@ function createConstraintRow(constraint, idx) {
     }
 
     const expr = document.createElement('span');
-    expr.className = 'constraint-expr';
+    expr.className = 'constraint-expr constraint-expr-split';
+    const lhsEl = document.createElement('span');
+    lhsEl.className = 'constraint-lhs';
+    const boundEl = document.createElement('span');
+    boundEl.className = 'constraint-bound';
+    let lowEl = null;
 
     if (mathMode) {
-        renderKatex(expr, formatConstraintLatex(constraint), false);
+        const parts = formatConstraintLatex(constraint);
+        if (parts.low) {
+            lowEl = document.createElement('span');
+            lowEl.className = 'constraint-lowbound';
+            renderKatex(lowEl, parts.low, false);
+        }
+        renderKatex(lhsEl, parts.lhs, false);
+        renderKatex(boundEl, parts.bound, false);
     } else {
-        expr.innerHTML = formatConstraint(constraint, idx);
-        applyAggMarkers(row, expr, idx);
+        const parts = formatConstraintParts(constraint, idx);
+        if (parts.low) {
+            lowEl = document.createElement('span');
+            lowEl.className = 'constraint-lowbound';
+            lowEl.innerHTML = parts.low;
+        }
+        lhsEl.innerHTML = parts.lhs;
+        boundEl.innerHTML = parts.bound;
     }
+
+    if (lowEl) expr.appendChild(lowEl);
+    expr.appendChild(lhsEl);
+    expr.appendChild(boundEl);
+    if (!mathMode) applyAggMarkers(row, expr, idx);
 
     // Single-constraint solve button
     const solveBtn = document.createElement('button');
@@ -3007,14 +3054,13 @@ function createConstraintRow(constraint, idx) {
     return row;
 }
 
-function formatConstraint(c, idx) {
+function formatConstraintParts(c, idx) {
     const terms = c.terms;
     const lhsHtml = formatTerms(terms);
     const canGrab = !mathMode && idx !== undefined && idx !== null;
 
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
-    const isRanged = !lowInf && !upInf && Math.abs(c.lower - c.upper) >= 1e-10;
 
     // Bound chunk with relation on the right (e.g. "≤ 60"). Grabbed as one unit.
     const wrapRhsChunk = function(side, relSym, num) {
@@ -3029,19 +3075,28 @@ function formatConstraint(c, idx) {
         return '<span class="agg-grab agg-rhs" data-side="' + side + '" data-con-idx="' + idx + '">' + inner + '</span>';
     };
 
+    let lowHtml = '';
+    let boundHtml;
     if (lowInf && upInf) {
-        return lhsHtml + ' <span class="relation">free</span>';
+        boundHtml = '<span class="relation">free</span>';
+    } else if (!lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10) {
+        boundHtml = wrapRhsChunk('upper', '=', c.lower);
+    } else if (lowInf) {
+        boundHtml = wrapRhsChunk('upper', '&le;', c.upper);
+    } else if (upInf) {
+        boundHtml = wrapRhsChunk('lower', '&ge;', c.lower);
+    } else {
+        lowHtml = wrapLhsChunk('lower', c.lower, '&le;');
+        boundHtml = wrapRhsChunk('upper', '&le;', c.upper);
     }
-    if (!lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10) {
-        return lhsHtml + ' ' + wrapRhsChunk('upper', '=', c.lower);
-    }
-    if (lowInf) {
-        return lhsHtml + ' ' + wrapRhsChunk('upper', '&le;', c.upper);
-    }
-    if (upInf) {
-        return lhsHtml + ' ' + wrapRhsChunk('lower', '&ge;', c.lower);
-    }
-    return wrapLhsChunk('lower', c.lower, '&le;') + ' ' + lhsHtml + ' ' + wrapRhsChunk('upper', '&le;', c.upper);
+    return { lhs: lhsHtml, bound: boundHtml, low: lowHtml };
+}
+
+function formatConstraint(c, idx) {
+    const p = formatConstraintParts(c, idx);
+    return (p.low ? '<span class="constraint-lowbound">' + p.low + '</span>' : '')
+        + '<span class="constraint-lhs">' + p.lhs + '</span>'
+        + '<span class="constraint-bound">' + p.bound + '</span>';
 }
 
 function formatTerms(terms) {
@@ -4043,9 +4098,9 @@ function renderAggPanel() {
     const aggLhsHtml = formatAggregateTerms(combined.terms);
     const aggLine = '<div class="agg-result">'
         + '<span class="agg-result-label">&Sigma;:</span> '
-        + '<span class="constraint-expr">'
-        + aggLhsHtml + ' <span class="relation">' + relSym + '</span> '
-        + '<span class="bound-val">' + formatNum(combined.rhs) + '</span>'
+        + '<span class="constraint-expr constraint-expr-split">'
+        + '<span class="constraint-lhs">' + aggLhsHtml + '</span>'
+        + '<span class="constraint-bound"> <span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(combined.rhs) + '</span></span>'
         + '</span></div>'
         + formatViolationLine(evalAggregateAtLp(combined));
 
@@ -4075,6 +4130,9 @@ function renderAggPanel() {
         + '<div class="agg-terms">' + rowsHtml + '</div>'
         + globalRow
         + aggLine;
+
+    const aggResultEl = aggPanelEl.querySelector('.agg-result');
+    if (aggResultEl) maybeCollapseBound(aggResultEl);
 
     aggPanelEl.querySelector('.agg-mode-toggle').addEventListener('click', flipAggMode);
     aggPanelEl.querySelector('.agg-clear').addEventListener('click', clearAggregation);
@@ -4151,9 +4209,9 @@ function _updateAggResultInPlace(relSym) {
     const recombined = combineDisplay();
     const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
     if (resultEl) {
-        resultEl.innerHTML = formatAggregateTerms(recombined.terms)
-            + ' <span class="relation">' + relSym + '</span> '
-            + '<span class="bound-val">' + formatNum(recombined.rhs) + '</span>';
+        resultEl.innerHTML = '<span class="constraint-lhs">' + formatAggregateTerms(recombined.terms) + '</span>'
+            + '<span class="constraint-bound"> <span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(recombined.rhs) + '</span></span>';
+        maybeCollapseBound(aggPanelEl.querySelector('.agg-result'));
     }
     const oldViol = aggPanelEl.querySelector('.agg-violation');
     if (oldViol) oldViol.remove();
@@ -4297,12 +4355,12 @@ function formatConstraintLatex(c) {
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
 
-    if (lowInf && upInf) return lhs + ' \\quad \\text{free}';
+    if (lowInf && upInf) return { lhs: lhs, bound: '\\;\\text{free}', low: '' };
     if (!lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10)
-        return lhs + ' = ' + formatNum(c.lower);
-    if (lowInf) return lhs + ' \\leq ' + formatNum(c.upper);
-    if (upInf) return lhs + ' \\geq ' + formatNum(c.lower);
-    return formatNum(c.lower) + ' \\leq ' + lhs + ' \\leq ' + formatNum(c.upper);
+        return { lhs: lhs, bound: '=' + formatNum(c.lower), low: '' };
+    if (lowInf) return { lhs: lhs, bound: '\\leq ' + formatNum(c.upper), low: '' };
+    if (upInf) return { lhs: lhs, bound: '\\geq ' + formatNum(c.lower), low: '' };
+    return { lhs: lhs, bound: '\\leq ' + formatNum(c.upper), low: formatNum(c.lower) + ' \\leq ' };
 }
 
 function escapeHtml(s) {

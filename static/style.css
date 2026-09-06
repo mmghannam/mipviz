@@ -1956,7 +1956,31 @@ main {
     font-size: 12.5px;
     line-height: 1.7;
     color: var(--text-secondary);
+}
+/* When the constraint has a separated bound, right-align the bound so it stays
+   visible even when the LHS wraps across many lines. */
+.constraint-expr.constraint-expr-split {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.constraint-lhs {
     word-break: break-word;
+}
+.constraint-expr.constraint-expr-split .constraint-lhs {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.constraint-expr.constraint-expr-split .constraint-lowbound {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+.constraint-expr.constraint-expr-split .constraint-bound {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 16px;
+    white-space: nowrap;
 }
 
 .var-hover {
@@ -2418,8 +2442,8 @@ body.agg-dragging * {
     font-size: 12.5px;
     line-height: 1.7;
     color: var(--text-secondary);
-    word-break: break-word;
     flex: 1;
+    min-width: 0;
 }
 .aggregation-panel .agg-saved-name {
     color: var(--accent);
