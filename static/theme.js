@@ -1,5 +1,6 @@
-// Shared theme handler. Cycles: auto → light → dark → auto.
-// "auto" means follow system preference (no localStorage entry).
+// Shared theme handler. From auto, the first click flips to the opposite of
+// what's currently shown; subsequent clicks cycle through the matching-system
+// mode and back to auto. "auto" means follow system preference (no localStorage entry).
 (function () {
     var media = window.matchMedia('(prefers-color-scheme: light)');
 
@@ -26,13 +27,18 @@
         if (getMode() === 'auto') applyMode('auto');
     });
 
-    // Wire up toggle button (cycles through auto → light → dark → auto)
+    function nextMode(current) {
+        var sysLight = media.matches;
+        if (current === 'auto') return sysLight ? 'dark' : 'light';
+        if (sysLight) return current === 'dark' ? 'light' : 'auto';
+        return current === 'light' ? 'dark' : 'auto';
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var btn = document.getElementById('theme-toggle');
         if (!btn) return;
         btn.addEventListener('click', function () {
-            var current = getMode();
-            var next = current === 'auto' ? 'light' : current === 'light' ? 'dark' : 'auto';
+            var next = nextMode(getMode());
             if (next === 'auto') {
                 localStorage.removeItem('theme');
             } else {

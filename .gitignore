@@ -4,3 +4,4 @@ node_modules/
 demo-video/
 package.json
 package-lock.json
+.aider*
