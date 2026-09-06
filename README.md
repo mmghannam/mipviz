@@ -41,6 +41,12 @@ A web tool for exploring the structure of Mixed-Integer Programming (MIP) instan
 - **MPS parsing**: [numnom](https://crates.io/crates/numnom) (pure Rust)
 - **Frontend**: Vanilla JS, HTML, CSS — no framework
 
+## Running locally
+
+The repo ships the compiled webassembly code in the 'static' folder, a local version of the website can be run with 
+```
+cd static && python3 -m http.server 3000
+```
 
 ## Building
 

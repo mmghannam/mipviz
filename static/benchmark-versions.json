@@ -1,0 +1,42 @@
+{
+  "versions": [
+    {
+      "id": "2026-07",
+      "label": "Jul 2026",
+      "date": "2026-07-07",
+      "details": "benchmark-2026-07-details.json",
+      "logs": "logs-2026-07",
+      "detail": true,
+      "sourceUrl": "https://plato.asu.edu/ftp/milp.html",
+      "attribution": "12 threads, 7200s time limit, AMD Ryzen 9 5900X (128GB). Updated 7 Jul 2026.",
+      "note": null,
+      "solvers": [
+        { "key": "scip_spx", "label": "SCIP/spx 10.0.0", "closedSource": false, "separator": false },
+        { "key": "scip_conc", "label": "SCIPCO/spx 11.0.0 (conc)", "closedSource": false, "separator": false },
+        { "key": "highs", "label": "HiGHS 1.15.0", "closedSource": false, "separator": false },
+        { "key": "highs_p", "label": "HiGHS 1.15.1 (par)", "closedSource": false, "separator": false },
+        { "key": "xsmoo", "label": "XSMOO (Smoothie)", "closedSource": true, "separator": false },
+        { "key": "copt", "label": "COPT 8.0.3", "closedSource": true, "separator": false },
+        { "key": "optverse", "label": "Optverse 2.0.1", "closedSource": true, "separator": false }
+      ]
+    },
+    {
+      "id": "2026-02",
+      "label": "Feb 2026",
+      "date": "2026-02-09",
+      "details": "benchmark-12threads-details.json",
+      "logs": "logs",
+      "detail": true,
+      "sourceUrl": "https://plato.asu.edu/ftp/milp.html",
+      "attribution": "12 threads, 7200s time limit, AMD Ryzen 9 5900X (128GB). Updated 9 Feb 2026.",
+      "note": null,
+      "solvers": [
+        { "key": "scip_spx", "label": "SCIP/spx 10.0.0", "closedSource": false, "separator": false },
+        { "key": "scipc_cpx", "label": "SCIP/cpx 10.0.0", "closedSource": false, "separator": false },
+        { "key": "highs", "label": "HiGHS 1.13.0", "closedSource": false, "separator": false },
+        { "key": "copt", "label": "COPT 8.0.3", "closedSource": true, "separator": false },
+        { "key": "optverse", "label": "Optverse 2.0.1", "closedSource": true, "separator": false }
+      ]
+    }
+  ]
+}

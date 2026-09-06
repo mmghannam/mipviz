@@ -5,10 +5,121 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Solver Benchmarks — mipviz</title>
-    <link rel="stylesheet" href="./style.css?v=64">
+    <link rel="stylesheet" href="./style.css?v=65">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        .version-toggle { display: flex; align-items: center; gap: 8px; }
+        .version-select {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text);
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px 26px 5px 10px;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+        .version-select:hover { border-color: var(--text-muted); }
+        .version-select:focus { outline: none; border-color: var(--accent); }
+        .benchmark-note {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text-muted);
+            background: var(--bg-raised);
+            border: 1px solid var(--border-subtle);
+            border-left: 2px solid var(--orange);
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin: 4px 0 4px;
+        }
+        .metric-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .solver-controls {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 0 0 14px;
+        }
+        .solver-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .solver-chip {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-raised);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+        }
+        .solver-chip:hover { border-color: var(--text-muted); color: var(--text); }
+        .solver-chip.off { opacity: 0.4; text-decoration: line-through; color: var(--text-muted); }
+        .closed-legend {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 6px;
+            margin: 0 0 8px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .agg-section { margin: 4px 0 28px; }
+        .agg-header { display: flex; justify-content: center; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+        .agg-title { font-family: var(--font-body); font-size: 16px; font-weight: 600; color: var(--text); margin: 0; }
+        .agg-note { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+        .agg-table-wrap {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--bg-raised);
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .agg-table {
+            border-collapse: collapse;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+        }
+        .agg-table th, .agg-table td { padding: 9px 18px; white-space: nowrap; text-align: right; }
+        .agg-table thead th {
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
+        }
+        .agg-table thead tr:first-child th.agg-group { text-align: center; color: var(--text-secondary); }
+        .agg-table th.agg-solver, .agg-table td.agg-solver { text-align: left; }
+        .agg-table td.agg-solver { color: var(--text); }
+        .agg-table .agg-group { border-left: 1px solid var(--border-subtle); }
+        .agg-table tbody tr:not(:last-child):not(.agg-vbs) td { border-bottom: 1px solid var(--border-subtle); }
+        .agg-table tbody tr:hover { background: var(--bg-hover); }
+        .agg-table td.agg-closed { color: var(--orange); }
+        .agg-ratio { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+        .agg-table td.agg-best { color: var(--green); }
+        .agg-table td.agg-best .agg-ratio { color: var(--green); opacity: 0.7; }
+        .agg-table tr.agg-vbs td { border-top: 1px solid var(--border); font-weight: 600; }
+        .agg-table tr.agg-vbs td.agg-solver { color: var(--accent); }
+        .closed-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            background: rgba(234, 88, 12, 0.12);
+            border: 1px solid rgba(234, 88, 12, 0.5);
+            flex-shrink: 0;
+        }
+    </style>
 </head>
 <body>
     <div class="grain-overlay"></div>
@@ -28,6 +139,11 @@
             <nav class="header-nav">
                 <a href="./instances.html" class="nav-link">Instance Bank</a>
                 <a href="./benchmarks.html" class="nav-link active">Benchmarks</a>
+                <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="nav-link star-btn" id="star-btn" aria-label="Star mipviz on GitHub">
+                    <svg class="star-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    <span class="star-label">Star</span>
+                    <span class="star-count" id="star-count"></span>
+                </a>
             </nav>
             <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
                 <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -45,10 +161,15 @@
             </div>
             <div class="benchmark-attribution">
                 Data from <a href="https://plato.asu.edu/ftp/milp.html" target="_blank" rel="noopener">Mittelmann MILP Benchmarks</a> by H. Mittelmann.
-                12 threads, 7200s time limit, AMD Ryzen 9 5900X (128GB). Updated 9 Feb 2026.
+                <span id="version-config"></span>
             </div>
+            <div id="version-note" class="benchmark-note hidden"></div>
             <input type="text" id="bank-search" class="library-search" placeholder="Search instances... (s)" autocomplete="off">
             <div class="bank-controls">
+                <div class="version-toggle">
+                    <span class="sort-label">Version</span>
+                    <select id="version-select" class="version-select"></select>
+                </div>
                 <div class="metric-toggle">
                     <span class="sort-label">Metric</span>
                     <button class="metric-btn active" data-metric="time">Time</button>
@@ -56,18 +177,24 @@
                     <button class="metric-btn" data-metric="presolve">Presolve</button>
                     <button class="metric-btn" data-metric="lp_gap">LP Gap</button>
                 </div>
-
             </div>
+            <div class="solver-controls">
+                <span class="sort-label">Solvers</span>
+                <div id="solver-chips" class="solver-chips"></div>
+            </div>
+            <div id="agg-section" class="agg-section hidden">
+                <div class="agg-header">
+                    <h3 class="agg-title">Aggregate</h3>
+                    <span class="agg-note">Shifted geometric mean over all instances · time shift 10s (unsolved charged 7200s), node shift 100</span>
+                </div>
+                <div id="agg-wrap" class="agg-table-wrap"></div>
+            </div>
+            <span id="closed-legend" class="closed-legend hidden"><span class="closed-swatch"></span>Closed source</span>
             <div class="bank-table-wrap">
                 <table class="bank-table benchmark-table">
                     <thead>
-                        <tr>
+                        <tr id="bench-head-row">
                             <th class="col-name sortable active" data-sort="name">Name<span class="sort-indicator"> ▲</span></th>
-                            <th class="col-solver sortable" data-sort="scip_spx">SCIP/spx 10.0.0<span class="sort-indicator"></span></th>
-                            <th class="col-solver sortable" data-sort="scipc_cpx">SCIP/cpx 10.0.0<span class="sort-indicator"></span></th>
-                            <th class="col-solver col-separator sortable" data-sort="highs">HiGHS 1.13.0<span class="sort-indicator"></span></th>
-                            <th class="col-solver col-commercial sortable" data-sort="copt">COPT 8.0.3<span class="sort-indicator"></span></th>
-                            <th class="col-solver col-commercial sortable" data-sort="optverse">Optverse 2.0.1<span class="sort-indicator"></span></th>
                         </tr>
                     </thead>
                     <tbody id="bank-body"></tbody>
@@ -97,21 +224,39 @@
     </footer>
 
     <script src="./theme.js?v=1"></script>
+    <script src="./star-count.js?v=1"></script>
     <script>
     const bankBody = document.getElementById('bank-body');
     const bankSearch = document.getElementById('bank-search');
     const bankCount = document.getElementById('bank-count');
     const bankStatus = document.getElementById('bank-status');
+    const versionSelect = document.getElementById('version-select');
+    const versionConfigEl = document.getElementById('version-config');
+    const versionNoteEl = document.getElementById('version-note');
+    const headRow = document.getElementById('bench-head-row');
+    const solverChips = document.getElementById('solver-chips');
+    const aggSection = document.getElementById('agg-section');
+    const aggWrap = document.getElementById('agg-wrap');
 
-    const SOLVERS = ['scip_spx', 'scipc_cpx', 'highs', 'copt', 'optverse'];
-    const SOLVER_LABELS = { highs: 'HiGHS', scip_spx: 'SCIP/spx', scipc_cpx: 'SCIP/cpx', copt: 'COPT', optverse: 'Optverse' };
-    const COMMERCIAL = new Set(['copt', 'optverse']);
     const TIMEOUT = 7200;
+    // Shifted geometric mean shifts (SGM_s(x) = exp(mean ln(x+s)) - s).
+    // Time shift 10s matches Mittelmann's published shifted geomeans exactly.
+    const SGM_TIME_SHIFT = 10;   // seconds
+    const SGM_NODES_SHIFT = 100;
+
+    // Version-derived state (set by loadVersion). SOLVERS is the ordered list of
+    // solver keys for the current version; SOLVER_META maps key -> its manifest entry.
+    let currentVersion = null;
+    let SOLVERS = [];
+    let SOLVER_META = {};
+    let SOLVER_LABELS = {};
+    let CLOSED_SOURCE = new Set();
+    let visibleSolvers = new Set(); // solver keys currently shown as columns
 
     let allRows = [];
     let currentSort = 'name';
     let sortAsc = true;
-    let currentMetric = 'time'; // 'time', 'nodes', 'presolve'
+    let currentMetric = 'time'; // 'time', 'nodes', 'presolve', 'lp_gap'
 
     // Log modal
     const logModal = document.getElementById('log-modal');
@@ -122,12 +267,13 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') logModal.classList.add('hidden'); });
 
     async function showLog(instanceName, solver) {
+        if (!currentVersion || !currentVersion.logs) return;
         const baseName = instanceName.replace('.mps.gz', '');
-        logModalTitle.textContent = baseName + ' — ' + SOLVER_LABELS[solver];
+        logModalTitle.textContent = baseName + ' — ' + (SOLVER_LABELS[solver] || solver);
         logModalBody.textContent = 'Loading...';
         logModal.classList.remove('hidden');
         try {
-            const url = './logs/' + solver + '/' + baseName + '.txt.gz';
+            const url = './' + currentVersion.logs + '/' + solver + '/' + baseName + '.txt.gz';
             const resp = await fetch(url);
             if (!resp.ok) throw new Error('Log not found');
             const ds = new DecompressionStream('gzip');
@@ -146,7 +292,9 @@
     }
 
     function instanceHref(name) {
-        return './benchmark-instance.html?instance=' + encodeURIComponent(name);
+        var href = './benchmark-instance.html?instance=' + encodeURIComponent(name);
+        if (currentVersion) href += '&v=' + encodeURIComponent(currentVersion.id);
+        return href;
     }
 
     function renderTime(val) {
@@ -187,6 +335,7 @@
     }
 
     function renderCell(solverData, instanceName, solver, bestObj) {
+        solverData = solverData || {};
         let r;
         if (currentMetric === 'time') {
             r = renderTime(solverData.time);
@@ -203,7 +352,12 @@
             const t = renderTime(solverData.time);
             timeHint = '<span class="cell-time-hint">' + t.label + '</span>';
         }
-        return '<a href="#" class="log-link" data-instance="' + instanceName + '" data-solver="' + solver + '"><span' + clsAttr + '>' + r.label + '</span>' + timeHint + '</a>';
+        const inner = '<span' + clsAttr + '>' + r.label + '</span>' + timeHint;
+        // Only link to the log viewer when this version has logs mirrored.
+        if (currentVersion && currentVersion.logs) {
+            return '<a href="#" class="log-link" data-instance="' + instanceName + '" data-solver="' + solver + '">' + inner + '</a>';
+        }
+        return inner;
     }
 
     function renderTable(data) {
@@ -212,10 +366,10 @@
             const tr = document.createElement('tr');
             const bestObj = row._stats ? row._stats.best_obj : null;
             let cells = '<td class="col-name"><a href="' + instanceHref(row.name) + '">' + row.name.replace('.mps.gz', '') + '</a></td>';
-            for (let i = 0; i < SOLVERS.length; i++) {
-                const s = SOLVERS[i];
-                const sep = (i === 2) ? ' col-separator' : '';
-                const com = COMMERCIAL.has(s) ? ' col-commercial' : '';
+            for (const meta of displayedSolvers()) {
+                const s = meta.key;
+                const sep = meta.separator ? ' col-separator' : '';
+                const com = meta.closedSource ? ' col-closed' : '';
                 cells += '<td class="col-solver' + sep + com + '">' + renderCell(row[s], row.name, s, bestObj) + '</td>';
             }
             tr.innerHTML = cells;
@@ -298,18 +452,19 @@
             }
         });
     }
-    document.querySelectorAll('th.sortable').forEach(th => {
-        th.addEventListener('click', () => {
-            const key = th.dataset.sort;
-            if (currentSort === key) {
-                sortAsc = !sortAsc;
-            } else {
-                currentSort = key;
-                sortAsc = key === 'name';
-            }
-            updateSortIndicators();
-            applyFilter();
-        });
+    // Delegated so it also covers solver headers built dynamically per version.
+    document.querySelector('.benchmark-table thead').addEventListener('click', (e) => {
+        const th = e.target.closest('th.sortable');
+        if (!th) return;
+        const key = th.dataset.sort;
+        if (currentSort === key) {
+            sortAsc = !sortAsc;
+        } else {
+            currentSort = key;
+            sortAsc = key === 'name';
+        }
+        updateSortIndicators();
+        applyFilter();
     });
 
     var bankSearchDebounce = null;
@@ -372,20 +527,313 @@
         origRenderTable(data);
     };
 
-    // Load data
-    fetch('./benchmark-12threads-details.json')
+    // --- Version handling ---------------------------------------------------
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    // Rebuild the solver <th> columns from the current version's solver list.
+    // Solvers currently shown, in the version's declared order.
+    function displayedSolvers() {
+        return currentVersion.solvers.filter(function (s) { return visibleSolvers.has(s.key); });
+    }
+
+    function buildHead() {
+        // Drop everything after the Name column, then re-add per-solver headers.
+        while (headRow.children.length > 1) headRow.removeChild(headRow.lastChild);
+        for (const solver of displayedSolvers()) {
+            const th = document.createElement('th');
+            th.className = 'col-solver sortable' +
+                (solver.separator ? ' col-separator' : '') +
+                (solver.closedSource ? ' col-closed' : '');
+            th.dataset.sort = solver.key;
+            th.innerHTML = escapeHtml(solver.label) + '<span class="sort-indicator"></span>';
+            headRow.appendChild(th);
+        }
+    }
+
+    // Chips to show/hide individual solver columns.
+    function buildSolverChips() {
+        solverChips.innerHTML = '';
+        for (const solver of currentVersion.solvers) {
+            const chip = document.createElement('button');
+            chip.className = 'solver-chip' + (visibleSolvers.has(solver.key) ? '' : ' off');
+            chip.dataset.solver = solver.key;
+            chip.textContent = solver.label;
+            chip.title = visibleSolvers.has(solver.key) ? 'Hide column' : 'Show column';
+            chip.addEventListener('click', function () { toggleSolver(solver.key); });
+            solverChips.appendChild(chip);
+        }
+    }
+
+    function toggleSolver(key) {
+        if (visibleSolvers.has(key)) {
+            if (visibleSolvers.size <= 1) return; // keep at least one solver column
+            visibleSolvers.delete(key);
+            if (currentSort === key) { currentSort = 'name'; sortAsc = true; }
+        } else {
+            visibleSolvers.add(key);
+        }
+        buildSolverChips();
+        buildHead();
+        updateSortIndicators();
+        applyFilter();
+        renderAggregates();
+    }
+
+    // ── Aggregate: shifted geometric means over instance subsets ────────────
+
+    function shiftedGeoMean(values, shift) {
+        if (!values.length) return null;
+        var sum = 0;
+        for (var i = 0; i < values.length; i++) sum += Math.log(Math.max(values[i], 0) + shift);
+        return Math.exp(sum / values.length) - shift;
+    }
+
+    // Per-solver SGM of time and nodes over a fixed instance subset.
+    // Unsolved runs are charged the time limit; nodes use whatever the log recorded.
+    function solverStats(rows, key) {
+        var times = [], nodes = [];
+        for (var i = 0; i < rows.length; i++) {
+            var d = rows[i][key] || {};
+            times.push(d.time != null ? d.time : TIMEOUT);
+            if (d.nodes != null) nodes.push(d.nodes);
+        }
+        return {
+            time: shiftedGeoMean(times, SGM_TIME_SHIFT),
+            nodes: shiftedGeoMean(nodes, SGM_NODES_SHIFT),
+            nNodes: nodes.length,
+        };
+    }
+
+    // Virtual best solver: per instance, the best time and best nodes across the
+    // shown solvers (an oracle that always picks the winner for each metric).
+    function vbsStats(rows, keys) {
+        var times = [], nodes = [];
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i], bestT = null, bestN = null;
+            for (var j = 0; j < keys.length; j++) {
+                var d = r[keys[j]];
+                if (!d) continue;
+                if (d.time != null && (bestT === null || d.time < bestT)) bestT = d.time;
+                if (d.nodes != null && (bestN === null || d.nodes < bestN)) bestN = d.nodes;
+            }
+            times.push(bestT != null ? bestT : TIMEOUT);
+            if (bestN != null) nodes.push(bestN);
+        }
+        return {
+            time: shiftedGeoMean(times, SGM_TIME_SHIFT),
+            nodes: shiftedGeoMean(nodes, SGM_NODES_SHIFT),
+            nNodes: nodes.length,
+        };
+    }
+
+    function computeAggregates() {
+        var disp = displayedSolvers().map(function (s) { return s.key; });
+        if (!allRows.length || !disp.length) return null;
+        var solved = function (r, k) { return r[k] && r[k].time != null; };
+        var allOpt = allRows.filter(function (r) { return disp.every(function (k) { return solved(r, k); }); });
+        var anySolved = allRows.filter(function (r) { return disp.some(function (k) { return solved(r, k); }); });
+        var perSolver = disp.map(function (k) {
+            var solvedCount = allRows.filter(function (r) { return solved(r, k); }).length;
+            return { key: k, solved: solvedCount, allOpt: solverStats(allOpt, k), any: solverStats(anySolved, k) };
+        });
+        var vbs = {
+            solved: anySolved.length, // VBS solves an instance iff any shown solver does
+            allOpt: vbsStats(allOpt, disp),
+            any: vbsStats(anySolved, disp),
+        };
+        return { nAllOpt: allOpt.length, nAny: anySolved.length, total: allRows.length, perSolver: perSolver, vbs: vbs };
+    }
+
+    function fmtSgmTime(v) { return v == null ? '—' : (v < 10 ? v.toFixed(2) : v.toFixed(1)) + 's'; }
+    function fmtSgmNodes(v) { return v == null ? '—' : Math.round(v).toLocaleString(); }
+
+    function renderAggregates() {
+        var agg = computeAggregates();
+        if (!agg) { aggSection.classList.add('hidden'); aggWrap.innerHTML = ''; return; }
+        aggSection.classList.remove('hidden');
+
+        // Column minima over the shown solvers = the fastest / fewest-nodes solver,
+        // the reference (1.00×) for the slowdown ratios. VBS is excluded.
+        function colMin(pick) {
+            var m = null;
+            for (var i = 0; i < agg.perSolver.length; i++) {
+                var v = pick(agg.perSolver[i]);
+                if (v != null && (m === null || v < m)) m = v;
+            }
+            return m;
+        }
+        var min = {
+            aoT: colMin(function (p) { return p.allOpt.time; }),
+            aoN: colMin(function (p) { return p.allOpt.nodes; }),
+            anT: colMin(function (p) { return p.any.time; }),
+            anN: colMin(function (p) { return p.any.nodes; }),
+        };
+
+        // A metric cell: value + slowdown ratio to the column's best; flags the best.
+        function cell(v, m, isTime, isGroup) {
+            var txt = isTime ? fmtSgmTime(v) : fmtSgmNodes(v);
+            var ratio = '';
+            if (v != null && m != null && m > 0) {
+                var r = v / m;
+                ratio = ' <span class="agg-ratio">' + (r < 10 ? r.toFixed(2) : r.toFixed(1)) + '×</span>';
+            }
+            var cls = 'agg-metric' + (isGroup ? ' agg-group' : '') + (v != null && v === m ? ' agg-best' : '');
+            return '<td class="' + cls + '">' + txt + ratio + '</td>';
+        }
+
+        function row(label, closed, solved, s, cls) {
+            return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
+                '<td class="agg-solver' + (closed ? ' agg-closed' : '') + '">' + escapeHtml(label) + '</td>' +
+                '<td>' + solved + ' / ' + agg.total + '</td>' +
+                cell(s.allOpt.time, min.aoT, true, true) +
+                cell(s.allOpt.nodes, min.aoN, false, false) +
+                cell(s.any.time, min.anT, true, true) +
+                cell(s.any.nodes, min.anN, false, false) +
+                '</tr>';
+        }
+
+        var html = '<table class="agg-table"><thead>' +
+            '<tr><th class="agg-solver" rowspan="2">Solver</th>' +
+            '<th rowspan="2">Solved</th>' +
+            '<th class="agg-group" colspan="2">All optimal (n=' + agg.nAllOpt + ')</th>' +
+            '<th class="agg-group" colspan="2">Solved by any (n=' + agg.nAny + ')</th></tr>' +
+            '<tr><th class="agg-group">time</th><th>nodes</th>' +
+            '<th class="agg-group">time</th><th>nodes</th></tr></thead><tbody>';
+
+        for (var i = 0; i < agg.perSolver.length; i++) {
+            var p = agg.perSolver[i];
+            var closed = SOLVER_META[p.key] && SOLVER_META[p.key].closedSource;
+            html += row(SOLVER_LABELS[p.key] || p.key, closed, p.solved, p, '');
+        }
+        html += row('Virtual best', false, agg.vbs.solved, agg.vbs, 'agg-vbs');
+        html += '</tbody></table>';
+        aggWrap.innerHTML = html;
+    }
+
+    // Enable only the metrics this version can answer. Times-only runs (no logs)
+    // have just the Time column populated.
+    function configureMetrics() {
+        const hasDetail = !!currentVersion.detail;
+        document.querySelectorAll('.metric-btn').forEach(btn => {
+            if (btn.dataset.metric === 'time') return;
+            btn.disabled = !hasDetail;
+            btn.title = hasDetail ? '' : 'Not available for this version (solve times only)';
+        });
+        if (!hasDetail && currentMetric !== 'time') {
+            currentMetric = 'time';
+            document.querySelectorAll('.metric-btn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'time'));
+        }
+    }
+
+    function applyVersionState() {
+        SOLVERS = currentVersion.solvers.map(s => s.key);
+        SOLVER_META = {};
+        SOLVER_LABELS = {};
+        CLOSED_SOURCE = new Set();
+        for (const s of currentVersion.solvers) {
+            SOLVER_META[s.key] = s;
+            SOLVER_LABELS[s.key] = s.label;
+            if (s.closedSource) CLOSED_SOURCE.add(s.key);
+        }
+        visibleSolvers = new Set(SOLVERS); // reset to all-shown for the new version
+        // Reset sort if the previous sort column doesn't exist in this version.
+        if (currentSort !== 'name' && SOLVERS.indexOf(currentSort) === -1) {
+            currentSort = 'name';
+            sortAsc = true;
+        }
+
+        // Attribution + optional note.
+        var cfg = currentVersion.attribution || '';
+        var src = currentVersion.sourceUrl;
+        versionConfigEl.innerHTML = escapeHtml(cfg) +
+            (src ? ' <a href="' + escapeHtml(src) + '" target="_blank" rel="noopener">source ↗</a>' : '');
+        if (currentVersion.note) {
+            versionNoteEl.textContent = currentVersion.note;
+            versionNoteEl.classList.remove('hidden');
+        } else {
+            versionNoteEl.classList.add('hidden');
+        }
+
+        // Show the closed-source legend only when this version has one.
+        var hasClosed = currentVersion.solvers.some(function (s) { return s.closedSource; });
+        document.getElementById('closed-legend').classList.toggle('hidden', !hasClosed);
+
+        buildHead();
+        buildSolverChips();
+        configureMetrics();
+        updateSortIndicators();
+    }
+
+    function loadVersion(version) {
+        currentVersion = version;
+        applyVersionState();
+        bankStatus.classList.remove('hidden');
+        bankStatus.textContent = 'Loading benchmark data...';
+        allRows = [];
+        renderTable([]);
+        renderAggregates(); // hides the (now-empty) aggregate while loading
+        // Keep the URL shareable/bookmarkable.
+        try {
+            var u = new URL(window.location.href);
+            u.searchParams.set('v', version.id);
+            history.replaceState(null, '', u.toString());
+        } catch (e) { /* ignore */ }
+
+        fetch('./' + version.details)
+            .then(r => r.json())
+            .then(data => {
+                if (currentVersion !== version) return; // superseded by a newer switch
+                allRows = Object.entries(data).map(([name, solvers]) => ({
+                    name: name,
+                    ...solvers
+                }));
+                bankStatus.classList.add('hidden');
+                applyFilter();
+                renderAggregates();
+            })
+            .catch(err => {
+                console.error(err);
+                bankStatus.textContent = 'Failed to load benchmark data.';
+            });
+    }
+
+    versionSelect.addEventListener('change', () => {
+        const v = MANIFEST.versions.find(x => x.id === versionSelect.value);
+        if (v) loadVersion(v);
+    });
+
+    let MANIFEST = { versions: [] };
+
+    // Load the version manifest, then the selected (or latest) version.
+    fetch('./benchmark-versions.json')
         .then(r => r.json())
-        .then(data => {
-            allRows = Object.entries(data).map(([name, solvers]) => ({
-                name: name,
-                ...solvers
-            }));
-            bankStatus.classList.add('hidden');
-            applyFilter();
+        .then(manifest => {
+            MANIFEST = manifest;
+            if (!manifest.versions || !manifest.versions.length) {
+                bankStatus.textContent = 'No benchmark versions configured.';
+                return;
+            }
+            // Populate selector (manifest is ordered newest-first).
+            versionSelect.innerHTML = '';
+            for (const v of manifest.versions) {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.textContent = v.label;
+                versionSelect.appendChild(opt);
+            }
+            // Default: ?v= param if valid, else the first (latest) version.
+            const params = new URLSearchParams(window.location.search);
+            const wanted = params.get('v');
+            let version = manifest.versions.find(v => v.id === wanted) || manifest.versions[0];
+            versionSelect.value = version.id;
+            loadVersion(version);
         })
         .catch(err => {
             console.error(err);
-            bankStatus.textContent = 'Failed to load benchmark data.';
+            bankStatus.textContent = 'Failed to load benchmark versions.';
         });
     </script>
 </body>

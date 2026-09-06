@@ -219,6 +219,41 @@ h1 {
     color: var(--accent);
 }
 
+/* GitHub Star button */
+.star-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--border);
+}
+
+.star-btn .star-icon {
+    transition: fill 0.15s, stroke 0.15s;
+}
+
+.star-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
+.star-btn:hover .star-icon {
+    fill: var(--orange);
+    stroke: var(--orange);
+}
+
+.star-btn .star-count {
+    font-variant-numeric: tabular-nums;
+    padding-left: 5px;
+    margin-left: 1px;
+    border-left: 1px solid var(--border);
+    min-width: 1ch;
+    text-align: center;
+}
+
+.star-btn .star-count:empty {
+    display: none;
+}
+
 /* Nav Search */
 .nav-search-wrap {
     position: relative;
@@ -3564,15 +3599,15 @@ th.col-cons-type.hidden {
     border-right: 2px solid var(--border);
 }
 
-.benchmark-table .col-commercial {
+.benchmark-table .col-closed {
     background: rgba(234, 88, 12, 0.04);
 }
 
-.benchmark-table thead .col-commercial {
+.benchmark-table thead .col-closed {
     color: var(--orange);
 }
 
-:root.light .benchmark-table .col-commercial {
+:root.light .benchmark-table .col-closed {
     background: rgba(234, 88, 12, 0.06);
 }
 
