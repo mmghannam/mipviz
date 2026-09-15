@@ -1,0 +1,21 @@
+[package]
+name = "mipviz-tui"
+version = "0.1.0"
+edition = "2024"
+description = "A terminal interface for exploring MIP models"
+license = "Apache-2.0"
+
+[[bin]]
+name = "mipviz"
+path = "src/main.rs"
+
+# Keep the first terminal milestone independently buildable while the web
+# workspace is pinned to WASM-specific solver forks.
+[workspace]
+
+[dependencies]
+crossterm = "0.28"
+lio-highs = { git = "https://github.com/mmghannam/lio-highs", rev = "168d4d8eab0d434121d257f9495a3d0dc81e6c3b" }
+log = "0.4"
+numnom = "0.2.0"
+ratatui = "0.29"
