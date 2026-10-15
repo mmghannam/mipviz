@@ -619,7 +619,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 [[package]]
 name = "lio-highs"
 version = "0.1.0"
-source = "git+https://github.com/mmghannam/lio-highs#168d4d8eab0d434121d257f9495a3d0dc81e6c3b"
+source = "git+https://github.com/mmghannam/lio-highs#9297c7ab30ed2e6c11683708ad68d0926f27f09a"
 dependencies = [
  "bindgen 0.71.1",
  "cc",

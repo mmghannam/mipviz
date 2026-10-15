@@ -1292,9 +1292,45 @@ pub fn extract_cliques_implications_highs(path: &str) -> Result<CliquesImplicati
                                 ImplicationBoundType::Upper => "upper".to_string(),
                             },
                             bound_value: imp.bound_value,
+                            kind: "probing".to_string(),
+                            coefficient: None,
+                            constant: None,
                         });
                     }
                 }
+            }
+        }
+    }
+
+    // Extract variable-bound implications (VUBs/VLBs): unconditional linear
+    // relations `x_col <=/>= coef * x_bin + constant` found during presolve.
+    // These are not part of the binary probing implications above.
+    if model.has_var_bounds() {
+        if let Ok(var_bounds) = model.get_var_bounds() {
+            for vb in var_bounds {
+                let to = vb.column;
+                let from = vb.binary_column;
+                implications.push(ImplicationEntry {
+                    from_var_name: col_names
+                        .get(from)
+                        .cloned()
+                        .unwrap_or_else(|| format!("x{}", from)),
+                    from_var_index: from,
+                    from_value: true,
+                    to_var_name: col_names
+                        .get(to)
+                        .cloned()
+                        .unwrap_or_else(|| format!("x{}", to)),
+                    to_var_index: to,
+                    bound_type: match vb.bound_type {
+                        ImplicationBoundType::Lower => "lower".to_string(),
+                        ImplicationBoundType::Upper => "upper".to_string(),
+                    },
+                    bound_value: vb.constant,
+                    kind: "variable_bound".to_string(),
+                    coefficient: Some(vb.coefficient),
+                    constant: Some(vb.constant),
+                });
             }
         }
     }
@@ -1432,6 +1468,9 @@ pub fn extract_cliques_implications_scip(path: &str) -> Result<CliquesImplicatio
                             to_var_index: to_idx,
                             bound_type: bt.to_string(),
                             bound_value: imp_bounds_slice[j],
+                            kind: "probing".to_string(),
+                            coefficient: None,
+                            constant: None,
                         });
                     }
                 }

@@ -123,6 +123,22 @@ pub struct ImplicationEntry {
     pub to_var_index: usize,
     pub bound_type: String,
     pub bound_value: f64,
+    /// `"probing"` for a conditional binary implication
+    /// (`x_from = from_value => x_to <=/>= bound_value`), or
+    /// `"variable_bound"` for an unconditional VUB/VLB relation
+    /// (`x_to <=/>= coefficient * x_from + constant`).
+    #[serde(default = "default_implication_kind")]
+    pub kind: String,
+    /// Multiplier on the binary variable (variable-bound implications only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coefficient: Option<f64>,
+    /// Additive constant (variable-bound implications only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constant: Option<f64>,
+}
+
+fn default_implication_kind() -> String {
+    "probing".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

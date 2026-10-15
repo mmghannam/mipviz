@@ -1566,19 +1566,39 @@ function renderCliquesImplications(data) {
         html += '<div class="implications-list">';
         for (var i = 0; i < data.implications.length; i++) {
             var imp = data.implications[i];
-            var fromVal = imp.from_value ? '1' : '0';
             var arrow = imp.bound_type === 'lower' ? '&ge;' : '&le;';
             var fromTip = implVarTooltip(imp.from_var_index, imp.from_var_name);
             var toTip = implVarTooltip(imp.to_var_index, imp.to_var_name);
             var fromClass = implVarClass(imp.from_var_index);
             var toClass = implVarClass(imp.to_var_index);
-            html += '<div class="implication-item">';
-            html += '<span class="' + fromClass + ' var-hover" data-var="' + imp.from_var_index + '" data-tip="' + fromTip + '"' + varTipLpAttr(imp.from_var_index) + '>x' + imp.from_var_index + '</span>';
-            html += ' <span class="impl-from-val">= ' + fromVal + '</span>';
-            html += ' <span class="impl-arrow">&rarr;</span> ';
-            html += '<span class="' + toClass + ' var-hover" data-var="' + imp.to_var_index + '" data-tip="' + toTip + '"' + varTipLpAttr(imp.to_var_index) + '>x' + imp.to_var_index + '</span>';
-            html += ' <span class="impl-to-bound">' + arrow + ' ' + formatImplVal(imp.bound_value) + '</span>';
-            html += '</div>';
+            var fromSpan = '<span class="' + fromClass + ' var-hover" data-var="' + imp.from_var_index + '" data-tip="' + fromTip + '"' + varTipLpAttr(imp.from_var_index) + '>x' + imp.from_var_index + '</span>';
+            var toSpan = '<span class="' + toClass + ' var-hover" data-var="' + imp.to_var_index + '" data-tip="' + toTip + '"' + varTipLpAttr(imp.to_var_index) + '>x' + imp.to_var_index + '</span>';
+            if (imp.kind === 'variable_bound') {
+                // Unconditional linear relation: x_to <=/>= coef * x_from + constant
+                var coef = imp.coefficient != null ? imp.coefficient : 1;
+                var constant = imp.constant != null ? imp.constant : imp.bound_value;
+                var tag = imp.bound_type === 'lower' ? 'VLB' : 'VUB';
+                html += '<div class="implication-item implication-varbound">';
+                html += '<span class="impl-kind-tag">' + tag + '</span>';
+                html += toSpan;
+                html += ' <span class="impl-to-bound">' + arrow + '</span>';
+                html += ' <span class="impl-coef">' + (coef < 0 ? '&minus;' : '') + formatImplVal(Math.abs(coef)) + '</span> &middot; ';
+                html += fromSpan;
+                if (constant !== 0) {
+                    html += ' <span class="impl-op">' + (constant < 0 ? '&minus;' : '+') + '</span>';
+                    html += ' <span class="impl-to-bound">' + formatImplVal(Math.abs(constant)) + '</span>';
+                }
+                html += '</div>';
+            } else {
+                var fromVal = imp.from_value ? '1' : '0';
+                html += '<div class="implication-item">';
+                html += fromSpan;
+                html += ' <span class="impl-from-val">= ' + fromVal + '</span>';
+                html += ' <span class="impl-arrow">&rarr;</span> ';
+                html += toSpan;
+                html += ' <span class="impl-to-bound">' + arrow + ' ' + formatImplVal(imp.bound_value) + '</span>';
+                html += '</div>';
+            }
         }
         html += '</div></details>';
     }

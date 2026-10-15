@@ -5356,6 +5356,25 @@ body:not(.lr-panel-open) main {
     color: var(--text-muted);
 }
 
+.implication-varbound {
+    border-left: 2px solid #a855f7;
+}
+
+.impl-kind-tag {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.12);
+}
+
+.impl-coef,
+.impl-op {
+    color: var(--text-secondary);
+}
+
 .cliques-more {
     padding: 8px;
     text-align: center;
