@@ -35,6 +35,23 @@ A web tool for exploring the structure of Mixed-Integer Programming (MIP) instan
 - **Per-instance detail pages** with root node bounds and solver logs
 - Data from [Mittelmann MILP Benchmarks](https://plato.asu.edu/ftp/milp.html)
 
+### Updating benchmark data
+
+To import a new snapshot from the seven concatenated solver logs downloaded
+from [Mittelmann’s log directory](https://plato.asu.edu/ftp/milp_log12/):
+
+```bash
+python3 scripts/import_milp_logs.py --downloads ~/Downloads --version 2026-10
+```
+
+The importer checks that each solver covers the same 240 instances, splits the
+logs, and extracts solve times and detailed metrics. Optimal results require a
+successful solution check; proved infeasible instances also count as solved.
+Unsolved runs receive a null time. Times use solver summaries and may differ
+from the published results table. Add the snapshot to
+`static/benchmark-versions.json` in newest-first order, with solver versions and
+thread counts taken from the logs. Existing snapshots remain available.
+
 ## Tech
 
 - **Solvers**: [SCIP](https://www.scipopt.org) and [HiGHS](https://highs.dev), compiled to WebAssembly via Emscripten
