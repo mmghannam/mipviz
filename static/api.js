@@ -40,6 +40,12 @@ const API = (() => {
         return path;
     }
 
+    function inputFilename(file) {
+        const name = file.name.toLowerCase().replace(/\.gz$/, '');
+        const extension = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
+        return 'input' + extension;
+    }
+
     // Decompress gzipped ArrayBuffer using DecompressionStream
     async function decompressGzip(buffer) {
         const ds = new DecompressionStream('gzip');
@@ -53,17 +59,25 @@ const API = (() => {
         await ensureReady();
         const buffer = await file.arrayBuffer();
         let text;
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             text = await decompressGzip(buffer);
         } else {
             text = new TextDecoder().decode(buffer);
         }
 
-        const data = writeString(text);
+        const isMps = inputFilename(file) === 'input.mps';
+        const path = isMps ? null : writeToVFS(new TextEncoder().encode(text), inputFilename(file));
+        const data = writeString(isMps ? text : path);
         const name = writeString(file.name);
-        const status = Module._mipviz_parse_model(data.ptr, data.len, name.ptr, name.len);
-        freeStr(data);
-        freeStr(name);
+        let status;
+        try {
+            const parseFn = isMps ? Module._mipviz_parse_model : Module._mipviz_parse_model_scip;
+            status = parseFn(data.ptr, data.len, name.ptr, name.len);
+        } finally {
+            freeStr(data);
+            freeStr(name);
+            if (path) Module.FS.unlink(path);
+        }
 
         const result = readResult();
         if (status !== 0) throw new Error(result.error || 'Parse failed');
@@ -73,11 +87,11 @@ const API = (() => {
     async function presolveModel(file, solver = 'scip') {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const name = writeString(file.name);
@@ -96,11 +110,11 @@ const API = (() => {
     async function getReductions(file) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const status = Module._mipviz_get_reductions(pathStr.ptr, pathStr.len);
@@ -114,11 +128,11 @@ const API = (() => {
     async function getReductionsCub(file) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const status = Module._mipviz_get_reductions_cub(pathStr.ptr, pathStr.len);
@@ -132,11 +146,11 @@ const API = (() => {
     async function solveRootLp(file, presolved, solver, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const solverStr = writeString(solver || 'highs');
@@ -165,11 +179,11 @@ const API = (() => {
     async function solveLpWithExtraRows(file, presolved, solver, extraRows, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const solverStr = writeString(solver || 'highs');
@@ -192,11 +206,11 @@ const API = (() => {
     async function solveConstraintSubset(file, indices, lpMode, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const indicesJson = writeString(JSON.stringify(indices));
@@ -217,11 +231,11 @@ const API = (() => {
     async function getCliques(file) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const status = Module._mipviz_get_cliques(pathStr.ptr, pathStr.len);
@@ -235,11 +249,11 @@ const API = (() => {
     async function getCliquesImplications(file, solver = 'scip') {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const fn_ = solver === 'scip'
@@ -267,11 +281,11 @@ const API = (() => {
     async function getRootCutsHighs(file, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const paramsStr = writeString(params || '');
@@ -293,11 +307,11 @@ const API = (() => {
     async function getRootCutsScip(file, params) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const paramsStr = writeString(params || '');
@@ -315,11 +329,11 @@ const API = (() => {
     async function getSymmetry(file) {
         await ensureReady();
         let buffer = await file.arrayBuffer();
-        if (file.name.endsWith('.gz')) {
+        if (file.name.toLowerCase().endsWith('.gz')) {
             const text = await decompressGzip(buffer);
             buffer = new TextEncoder().encode(text).buffer;
         }
-        const path = writeToVFS(buffer, 'input.mps');
+        const path = writeToVFS(buffer, inputFilename(file));
 
         const pathStr = writeString(path);
         const status = Module._mipviz_get_symmetry_scip(pathStr.ptr, pathStr.len);
