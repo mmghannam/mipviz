@@ -9,7 +9,7 @@
       "detail": true,
       "sourceUrl": "https://plato.asu.edu/ftp/milp_log12/",
       "attribution": "Up to 12 threads (SCIP concurrent: 10), 7200s time limit, AMD Ryzen 9 5900X (128GB). October 2026 snapshot.",
-      "note": "Solve times and metrics extracted from the downloaded solver logs; times have not been checked against the published results table. This snapshot combines updated runs with older runs retained by the source.",
+      "note": "Solve times and metrics extracted from the downloaded solver logs; times have not been checked against the published results table. Logs for SCIP/spx, HiGHS, parallel HiGHS, and Optverse are unchanged from the July snapshot; the other solvers have updated logs.",
       "solvers": [
         {"key": "scip_spx", "label": "SCIP/spx 10.0.0", "closedSource": false, "separator": false},
         {"key": "scip_conc", "label": "SCIPCO/spx 11.0.0 (10 threads)", "closedSource": false, "separator": false},
