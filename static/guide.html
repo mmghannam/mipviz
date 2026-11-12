@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feature guide — mipviz</title>
+    <link rel="stylesheet" href="./style.css?v=89">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="grain-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="./" class="logo-mark">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="2" y="2" width="10" height="10" rx="1" stroke="var(--accent)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="2" width="10" height="10" rx="1" stroke="var(--green)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="2" y="16" width="10" height="10" rx="1" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                    <rect x="16" y="16" width="10" height="10" rx="1" fill="var(--accent)" opacity="0.15" stroke="var(--accent)" stroke-width="1.5"/>
+                    <line x1="7" y1="7" x2="21" y2="21" stroke="var(--text-muted)" stroke-width="0.75" stroke-dasharray="2 2"/>
+                </svg>
+            </a>
+            <a href="./" class="title-link"><h1>mipviz</h1></a>
+            <nav class="header-nav">
+                <a href="./instances.html" class="nav-link">Instance Bank</a>
+                <a href="./benchmarks.html" class="nav-link">Benchmarks</a>
+                <a href="https://github.com/mmghannam/mipviz" target="_blank" rel="noopener" class="nav-link star-btn" id="star-btn" aria-label="Star mipviz on GitHub">
+                    <svg class="star-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    <span class="star-label">Star</span>
+                    <span class="star-count" id="star-count"></span>
+                </a>
+                <a href="./guide.html" class="nav-link guide-help" aria-current="page" title="Feature guide" aria-label="Feature guide">?</a>
+            </nav>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main class="feature-guide">
+        <h2>Feature guide</h2>
+        <p class="guide-intro">Find a feature, learn what it does, and see how to use it. New here? Load a model, hover a variable, then click it to explore related constraints.</p>
+        <p><a href="./">Open mipviz</a> · <a href="./definitions.html">Constraint type definitions</a></p>
+        <label for="guide-search">Find a feature</label>
+        <input id="guide-search" type="search" placeholder="Try: filters, cyan, presolve…" autocomplete="off" aria-controls="guide-entries">
+        <p id="guide-status" role="status" aria-live="polite"></p>
+        <div id="guide-entries">
+        <section class="guide-section"><h3>Start here</h3>
+            <details class="guide-entry" id="load-a-model" data-keywords="Upload MPS LP gzip file random instance"><summary>Load a model</summary><p>Drop an .mps or .lp file onto the home page, or choose a file. Gzipped files work too. Use “try a random instance” to explore without a file.</p></details>
+            <details class="guide-entry" id="instance-bank-and-search" data-keywords="MIPLIB search s download"><summary>Instance Bank and search</summary><p>Search instance names in the header, or browse the Instance Bank. Press S on the main page to focus instance search. Available actions depend on the loaded model.</p></details>
+            <details class="guide-entry" id="guided-tour" data-keywords="help onboarding t"><summary>Guided tour</summary><p>Choose “take a tour” on the home page or “Tour” after loading a model. The tour changes to explain the current view. Press T on the main page to start it.</p></details>
+        </section>
+        <section class="guide-section"><h3>Read a model</h3>
+            <details class="guide-entry" id="variable-colors-and-hover-details" data-keywords="cyan implied integer green blue orange tooltip"><summary>Variable colors and hover details</summary><p>In constraint expressions, binary variables use blue, declared integers green, continuous variables orange, and certified implied integers cyan. Hover a variable for its original name, bounds, type, objective coefficient, and available LP value. Hovering also highlights its other occurrences.</p></details>
+            <details class="guide-entry" id="implied-integer-variables" data-keywords="continuous equality integrality cyan"><summary>Implied integer variables</summary><p>A continuous variable is marked implied integer when an equality with otherwise declared integer or binary variables proves it integer-valued: dividing by its coefficient must leave an integer RHS and integer coefficients. For example, 2y + 4x = 6 implies integer y if x is integer. This basic check does not chain deductions or change the declared variable type.</p></details>
+            <details class="guide-entry" id="constraint-tags" data-keywords="classification all integer variable bound equality"><summary>Constraint tags</summary><p>Click “tags N” beside a constraint to reveal its classifications; click “hide tags” to collapse them. “All integer” includes binary, integer, and certified implied-integer variables. “Variable bound” requires a one-sided inequality with one binary and one continuous or integer variable. See the constraint definitions for every tag.</p></details>
+            <details class="guide-entry" id="variable-bars,-sorting,-and-compression" data-keywords="bounds number line objective compress"><summary>Variable bars, sorting, and compression</summary><p>Open Variables to compare bounds on a shared number line. Arrows indicate infinite bounds; bar thickness reflects objective magnitude. Use the sort buttons to reorder variables; click again to reverse. “compress” groups variables with the same type, bounds, and objective coefficient; click a group to expand it.</p></details>
+            <details class="guide-entry" id="objective-groups-and-math-mode" data-keywords="sigma Σ latex formula"><summary>Objective groups and math mode</summary><p>Open Objective to inspect its terms. Click a compressed Σ group to expand the individual variables. The math toggle switches expressions to mathematical typesetting.</p></details>
+            <details class="guide-entry" id="coefficient-ranges-and-sparsity" data-keywords="matrix nonzero components numerical"><summary>Coefficient ranges and sparsity</summary><p>Coefficient ranges summarize the sizes of matrix, objective, bound, and RHS values. Open Sparsity Pattern to see nonzero locations and connected components. Component selection filters the model view; the enlarged sparsity view supports zooming and panning.</p></details>
+        </section>
+        <section class="guide-section"><h3>Filter and navigate</h3>
+            <details class="guide-entry" id="filter-constraints" data-keywords="type tag variable name nz nonzeros"><summary>Filter constraints</summary><p>Click a constraint-type tag in the summary to filter by that type. Click a variable name to select constraints containing it. Use the constraint name field or the nz bound to narrow the list further. Active filters appear above the model statistics; × removes a condition and “Clear all” resets the filters.</p></details>
+            <details class="guide-entry" id="and-or-groups" data-keywords="group nested selection drag marquee"><summary>AND / OR groups</summary><p>Click filter chips to select them, or drag a rectangle across chips to group them. Click the AND or OR buttons to switch the operator. Select existing groups to form a nested group. The group’s × removes the grouping.</p></details>
+            <details class="guide-entry" id="not-filters" data-keywords="exclude negate right click context menu"><summary>NOT filters</summary><p>Right-click a filter chip to toggle NOT. Right-click a group’s background to negate the entire group, such as NOT (A OR B). An explicit NOT label and dashed border mark negation. Right-click again to restore the original condition.</p></details>
+            <details class="guide-entry" id="follow-a-constraints-variables" data-keywords="shares variables funnel name"><summary>Follow a constraint’s variables</summary><p>Click a constraint name or its funnel button to inspect its variables and related constraints. This is useful for following a small part of a large model.</p></details>
+        </section>
+        <section class="guide-section"><h3>Solve and simplify</h3>
+            <details class="guide-entry" id="solver-selection-and-parameters" data-keywords="SCIP HiGHS settings browser wasm"><summary>Solver selection and parameters</summary><p>Choose SCIP or HiGHS in the model toolbar. Open the settings button beside the solver picker to edit its parameters; the popover links to the solver documentation. Solving runs in the browser via WebAssembly.</p></details>
+            <details class="guide-entry" id="presolve" data-keywords="reductions simplify symmetry cliques"><summary>Presolve</summary><p>Click Presolve to simplify the model and update its displayed statistics and expressions. Depending on the selected solver, additional information such as cliques, implications, or symmetry becomes available.</p></details>
+            <details class="guide-entry" id="solve-lp-and-solve-mip" data-keywords="relaxation fractional solution"><summary>Solve LP and Solve MIP</summary><p>Solve LP computes the continuous relaxation; available solution values appear in hover details and on variable bars. Fractional values of declared integer variables are highlighted. Solve MIP solves with the declared integrality restrictions.</p></details>
+            <details class="guide-entry" id="solve-a-subset-of-constraints" data-keywords="visible LP single row play triangle"><summary>Solve a subset of constraints</summary><p>Use the ▶ button beside a constraint to compare its LP and MIP solutions in isolation. “Solve visible LP” solves the LP using the currently visible constraint subset. These results describe that subset, rather than the full model.</p></details>
+        </section>
+        <section class="guide-section"><h3>Explore further</h3>
+            <details class="guide-entry" id="matrix-and-conflict-graph" data-keywords="visualization presolve animation graph clique"><summary>Matrix and conflict graph</summary><p>Use Matrix in the model toolbar for a detailed matrix view and presolve visualization. Conflict Graph opens a graph view of binary conflicts. These links appear when available for the loaded instance.</p></details>
+            <details class="guide-entry" id="constraint-aggregation" data-keywords="aggregate visible coefficients CG MIR rounding"><summary>Constraint aggregation</summary><p>Click a constraint side or bound to add it to the aggregation playground, or use “Aggregate visible” for the filtered list. Adjust multipliers and inspect the resulting inequality. The playground also offers variable substitutions and CG or MIR rounding when their conditions are met.</p></details>
+            <details class="guide-entry" id="lagrangian-plots" data-keywords="lambda L(λ) relaxation"><summary>Lagrangian plots</summary><p>Use “Plot all visible L(λ)” in the Constraints toolbar to explore Lagrangian plots for the current constraint selection. Start with a small filtered subset to keep the plot manageable.</p></details>
+            <details class="guide-entry" id="benchmarks" data-keywords="solver performance results comparison"><summary>Benchmarks</summary><p>Open Benchmarks to browse published solver comparisons, versions, and per-instance results. The model toolbar links to instance benchmark information when available.</p></details>
+        </section>
+        </div>
+        <p id="guide-empty" hidden>No matching features. Try a shorter word, or clear the search.</p>
+    </main>
+    <script src="./theme.js?v=1"></script>
+    <script src="./star-count.js?v=1"></script>
+    <script src="./guide.js?v=1"></script>
+</body>
+</html>

@@ -129,7 +129,7 @@
         tour.addStep({
             id: 'legend',
             attachTo: { element: '.legend', on: 'bottom' },
-            text: 'Variables are color-coded by type throughout the tool: <span style="color:var(--orange)">continuous</span>, <span style="color:var(--green)">integer</span>, and <span style="color:var(--accent)">binary</span>.',
+            text: 'Variables are color-coded by type throughout the tool: <span style="color:var(--orange)">continuous</span>, <span style="color:var(--green)">integer</span>, <span style="color:var(--accent)">binary</span>, and <span style="color:#22d3ee">implied integer</span> (in constraint expressions).',
             buttons: [
                 { text: 'Back', action: tour.back, secondary: true },
                 { text: 'Next', action: tour.next }
@@ -234,7 +234,7 @@
         tour.addStep({
             id: 'constraints',
             attachTo: { element: '#constraints-list', on: 'top' },
-            text: 'All constraints with color-coded variables. Hover a variable to highlight it everywhere. Click to filter. Each constraint shows its type tags.',
+            text: 'All constraints with color-coded variables. Hover a variable to highlight it everywhere. Click to filter. Click “tags N” to expand a constraint’s type tags. Right-click an active filter chip to toggle NOT. See the Feature guide in the header for more gestures and tools.',
             beforeShowPromise: function() {
                 var details = document.querySelector('#constraints-list').closest('details');
                 if (details && !details.open) details.open = true;

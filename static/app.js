@@ -55,6 +55,7 @@ let conditionsById = {};        // id -> condition descriptor
 let filterGroupIdCounter = 0;
 let selectedGroupIds = new Set();// group ids selected by clicking the group box (for nesting)
 let selectedChipIds = new Set();  // chip ids selected by clicking a chip
+let negatedFilterIds = new Set(); // condition or group ids whose result is complemented
 
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
@@ -153,6 +154,10 @@ function buildConditions() {
     }
 }
 
+function filterResult(id, result) {
+    return negatedFilterIds.has(id) ? !result : result;
+}
+
 function isGroupId(id) {
     return filterGroups.some(function(g) { return g.id === id; });
 }
@@ -190,9 +195,9 @@ function evalGroup(g, con, conIdx) {
         var sub = filterGroups.filter(function(x) { return x.id === id; })[0];
         if (sub) return evalGroup(sub, con, conIdx);
         var c = conditionsById[id];
-        return c ? c.matches(con, conIdx) : true;
+        return c ? filterResult(id, c.matches(con, conIdx)) : true;
     });
-    return combineBools(res, g.op);
+    return filterResult(g.id, combineBools(res, g.op));
 }
 
 // Evaluate the filter expression (nested groups + singletons, combined by topLevelOp).
@@ -202,25 +207,26 @@ function constraintMatchesActiveFilters(con, conIdx) {
     var items = getTopLevelItems();
     var results = items.map(function(item) {
         if (item.type === 'group') return evalGroup(item.g, con, conIdx);
-        return item.c.matches(con, conIdx);
+        return filterResult(item.c.id, item.c.matches(con, conIdx));
     });
     if (results.length === 0) return true;
     return combineBools(results, topLevelOp);
 }
 
 function renderFilterChip(c, nonGroupable) {
+    var negated = negatedFilterIds.has(c.id);
     var ng = nonGroupable ? ' non-groupable' : '';
     var sel = (!nonGroupable && selectedChipIds.has(c.id)) ? ' selected' : '';
-    var tip = nonGroupable ? 'Not part of the filter expression' : 'Drag to marquee · click to select';
-    return '<span class="filter-chip' + sel + ng + '" data-cond-id="' + c.id + '" title="' + tip + '">' +
-        escapeHtml(c.label) +
+    var tip = nonGroupable ? 'Not part of the filter expression' : 'Drag to marquee · click to select · right-click to toggle NOT';
+    return '<span class="filter-chip' + sel + ng + (negated ? ' negated' : '') + '" data-cond-id="' + c.id + '" title="' + tip + '">' +
+        (negated ? '<strong class="filter-not">NOT</strong> ' : '') + escapeHtml(c.label) +
         '<button class="filter-chip-remove" data-action="remove-cond" data-cond-id="' + c.id + '" title="Remove">×</button>' +
         '</span>';
 }
 
 function renderFilterGroupBox(g) {
-    var selCls = selectedGroupIds.has(g.id) ? ' selected' : '';
-    var html = '<span class="filter-group-box' + selCls + '" data-group-id="' + g.id + '" title="Drag to marquee · click to select group">';
+    var selCls = (selectedGroupIds.has(g.id) ? ' selected' : '') + (negatedFilterIds.has(g.id) ? ' negated' : '');
+    var html = '<span class="filter-group-box' + selCls + '" data-group-id="' + g.id + '" title="Drag to marquee · click to select group · right-click to toggle NOT">';
     g.memberIds.forEach(function(id, i) {
         if (i > 0) {
             html += '<button class="filter-op" data-action="toggle-group-op" data-group-id="' + g.id + '" title="Toggle this group\'s operator">' + g.op.toUpperCase() + '</button> ';
@@ -243,12 +249,16 @@ function updateFilterPill() {
     buildConditions();
     var conds = Object.keys(conditionsById).map(function(id) { return conditionsById[id]; });
     if (conds.length === 0) {
+        negatedFilterIds.clear();
         filterPill.classList.add('hidden');
         selectedGroupIds = new Set();
         selectedChipIds = new Set();
         updateHashState();
         return;
     }
+    negatedFilterIds.forEach(function(id) {
+        if (!conditionsById[id] && !isGroupId(id)) negatedFilterIds.delete(id);
+    });
     // Drop any selected-group references that no longer exist.
     var stale = [];
     selectedGroupIds.forEach(function(id) { if (!isGroupId(id)) stale.push(id); });
@@ -403,8 +413,18 @@ function moveMarquee(e) {
 }
 
 if (filterPill) {
+    filterPill.addEventListener('contextmenu', function(e) {
+        if (e.target.closest('button, .non-groupable')) return;
+        var item = e.target.closest('.filter-chip, .filter-group-box');
+        if (!item) return;
+        e.preventDefault();
+        var id = item.dataset.condId || item.dataset.groupId;
+        if (negatedFilterIds.has(id)) negatedFilterIds.delete(id);
+        else negatedFilterIds.add(id);
+        applyFilters();
+    });
     filterPill.addEventListener('mousedown', function(e) {
-        if (e.target.closest('button')) return;
+        if (e.button !== 0 || e.ctrlKey || e.target.closest('button')) return;
         selDrag = true;
         selMoved = false;
         selStartX = e.clientX;
@@ -488,6 +508,7 @@ function nzOpSymbol(op) {
 
 function clearAllFilters() {
     filterGroups = [];
+    negatedFilterIds.clear();
     topLevelOp = 'and';
     selectedGroupIds = new Set();
     selectedChipIds = new Set();
@@ -1920,6 +1941,7 @@ function showResults() {
     varFilterOp = 'and';
     activeComponentFilter = null;
     filterGroups = [];
+    negatedFilterIds.clear();
     topLevelOp = 'and';
     selectedGroupIds = new Set();
     selectedChipIds = new Set();
@@ -1969,7 +1991,45 @@ function showResults() {
     });
 }
 
-function classifyConstraint(c) {
+// Conservative, one-pass inference from declared integer variables only.
+// Combine repeated columns before looking for the sole continuous variable.
+function findImpliedIntegerVariables(constraints) {
+    const implied = new Set();
+    for (const c of constraints) {
+        if (!Number.isFinite(c.lower) || c.lower !== c.upper || Math.abs(c.lower) >= INF_THRESHOLD) continue;
+        const columns = new Map();
+        for (const t of c.terms) {
+            const prev = columns.get(t.var_index);
+            columns.set(t.var_index, { var_type: t.var_type, coeff: (prev ? prev.coeff : 0) + t.coeff });
+        }
+        const terms = Array.from(columns.entries()).filter(([, t]) => t.coeff !== 0);
+        const continuous = terms.filter(([, t]) => t.var_type === 'continuous');
+        if (continuous.length !== 1) continue;
+        const [index, candidate] = continuous[0];
+        const a = candidate.coeff;
+        if (!Number.isFinite(a) || !Number.isSafeInteger(c.lower / a)) continue;
+        if (terms.every(([i, t]) => i === index ||
+            ((t.var_type === 'binary' || t.var_type === 'integer') && Number.isSafeInteger(t.coeff / a)))) {
+            implied.add(index);
+        }
+    }
+    return implied;
+}
+
+function isImpliedIntegerVariable(index) {
+    return !!(modelData && modelData._impliedIntegerVars && modelData._impliedIntegerVars.has(index));
+}
+
+function variableTypeTooltip(type, index) {
+    return type === 'continuous' && isImpliedIntegerVariable(index)
+        ? 'continuous · implied integer (from an equality)' : type;
+}
+
+function termVariableClass(t) {
+    return 'var-' + t.var_type + (t.var_type === 'continuous' && isImpliedIntegerVariable(t.var_index) ? ' var-implied-integer' : '');
+}
+
+function classifyConstraint(c, impliedIntegerVars = new Set()) {
     const tags = [];
     const n = c.terms.length;
     if (n === 0) { return ['empty']; }
@@ -1985,6 +2045,15 @@ function classifyConstraint(c) {
     else if (allBinary) tags.push('pure binary');
     else if (hasInt) tags.push('mixed integer');
     else if (hasBin && hasCont) tags.push('mixed binary');
+
+    // Binary variables are integer-valued too; keep this marker independent
+    // of the more specific variable-composition and structure tags.
+    if (c.terms.every(t => t.var_type === 'binary' || t.var_type === 'integer' || impliedIntegerVars.has(t.var_index))) {
+        tags.push('all integer');
+    }
+    if (c.terms.some(t => t.var_type === 'continuous' && impliedIntegerVars.has(t.var_index))) {
+        tags.push('implied integer');
+    }
 
     // big-M: at least one binary term with |coeff| >= BIGM_RATIO * max |coeff| of non-binary terms
     if (hasBin && (hasCont || hasInt)) {
@@ -2022,7 +2091,7 @@ function classifyConstraint(c) {
     // Structure tags
     if (n === 1) { tags.push('bound'); return tags; }
     if (isPrecedence) { tags.push('precedence'); return tags; }
-    if (n === 2 && hasBin && (hasCont || hasInt)) { tags.push('variable bound'); return tags; }
+    if (n === 2 && hasBin && (hasCont || hasInt) && (isLeq || isGeq)) { tags.push('variable bound'); return tags; }
 
     if (allBinary && allCoeffOne && rhsOne) {
         if (isEq) tags.push('set partitioning');
@@ -2045,8 +2114,10 @@ function classifyConstraint(c) {
 
 function classifyConstraints() {
     const counts = {};
+    const impliedIntegerVars = findImpliedIntegerVariables(modelData.constraints);
+    modelData._impliedIntegerVars = impliedIntegerVars;
     for (const c of modelData.constraints) {
-        c._tags = classifyConstraint(c);
+        c._tags = classifyConstraint(c, impliedIntegerVars);
         for (const t of c._tags) {
             counts[t] = (counts[t] || 0) + 1;
         }
@@ -2055,6 +2126,7 @@ function classifyConstraints() {
     activeTypeFilter = new Set();
     typeFilterOp = 'or';
     filterGroups = [];
+    negatedFilterIds.clear();
     topLevelOp = 'and';
     selectedGroupIds = new Set();
     selectedChipIds = new Set();
@@ -2105,7 +2177,7 @@ function renderStats(stats) {
     const typeOrder = ['set partitioning', 'set packing', 'set covering', 'precedence', 'cardinality',
                        'knapsack', 'bin. knapsack eq.', 'integer knapsack', 'equality',
                        'variable bound', 'bound', 'big-M',
-                       'continuous', 'pure binary', 'mixed binary', 'mixed integer',
+                       'continuous', 'pure binary', 'all integer', 'implied integer', 'mixed binary', 'mixed integer',
                        'empty'];
     const typesEl = document.getElementById('constraint-types');
     const present = typeOrder.filter(t => types[t]);
@@ -2301,14 +2373,14 @@ function formatTermsCompressed(terms) {
         if (g.terms.length === 1) {
             // Single term — render normally
             var t = g.terms[0];
-            var varClass = 'var-' + t.var_type;
+            var varClass = termVariableClass(t);
             if (Math.abs(absCoeff - 1) > 1e-10) {
                 html += '<span class="coeff">' + formatNum(absCoeff) + '</span>';
             }
             var v = modelData.variables[t.var_index];
             var lo = v.lower === null || v.lower < -INF_THRESHOLD ? '-\u221E' : formatNum(v.lower);
             var hi = v.upper === null || v.upper > INF_THRESHOLD ? '\u221E' : formatNum(v.upper);
-            var tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') \u2208 [' + lo + ', ' + hi + '] \u00b7 ' + t.var_type + ' \u00b7 obj: ' + formatNum(v.obj));
+            var tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') \u2208 [' + lo + ', ' + hi + '] \u00b7 ' + variableTypeTooltip(t.var_type, t.var_index) + ' \u00b7 obj: ' + formatNum(v.obj));
             html += '<span class="' + varClass + varFracClass(t.var_index) + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '"' + varTipLpAttr(t.var_index) + '>x' + t.var_index + '</span>';
         } else {
             // Group — render as compressed summation
@@ -2345,9 +2417,9 @@ function formatTermsCompressed(terms) {
                 var gv = modelData.variables[gt.var_index];
                 var glo = gv.lower === null || gv.lower < -INF_THRESHOLD ? '-\u221E' : formatNum(gv.lower);
                 var ghi = gv.upper === null || gv.upper > INF_THRESHOLD ? '\u221E' : formatNum(gv.upper);
-                var gtip = escapeAttr('x' + gt.var_index + ' (' + gv.name + ') \u2208 [' + glo + ', ' + ghi + '] \u00b7 ' + gt.var_type + ' \u00b7 obj: ' + formatNum(gv.obj));
+                var gtip = escapeAttr('x' + gt.var_index + ' (' + gv.name + ') \u2208 [' + glo + ', ' + ghi + '] \u00b7 ' + variableTypeTooltip(gt.var_type, gt.var_index) + ' \u00b7 obj: ' + formatNum(gv.obj));
                 if (ti > 0) html += ' <span class="op">+</span> ';
-                html += '<span class="var-' + gt.var_type + varFracClass(gt.var_index) + ' var-hover" data-var="' + gt.var_index + '" data-tip="' + gtip + '"' + varTipLpAttr(gt.var_index) + '>x' + gt.var_index + '</span>';
+                html += '<span class="' + termVariableClass(gt) + varFracClass(gt.var_index) + ' var-hover" data-var="' + gt.var_index + '" data-tip="' + gtip + '"' + varTipLpAttr(gt.var_index) + '>x' + gt.var_index + '</span>';
             }
             html += ')</span></span></span>';
         }
@@ -2782,7 +2854,7 @@ function renderMoreVariables() {
                 }
             }
 
-            var varTip = escapeAttr('x' + i + ' (' + v.name + ') ∈ [' + bp.loLabel + ', ' + bp.hiLabel + '] · ' + v.var_type + ' · obj: ' + formatNum(v.obj));
+            var varTip = escapeAttr('x' + i + ' (' + v.name + ') ∈ [' + bp.loLabel + ', ' + bp.hiLabel + '] · ' + variableTypeTooltip(v.var_type, i) + ' · obj: ' + formatNum(v.obj));
 
             row.innerHTML =
                 '<span class="variable-label-area">' +
@@ -2884,7 +2956,7 @@ function renderMoreVariablesCompressed() {
                                 }
                                 var cRow = document.createElement('div');
                                 cRow.className = 'variable-row variable-group-child';
-                                var cTip = escapeAttr('x' + idx + ' (' + cv.name + ') ∈ [' + cbp.loLabel + ', ' + cbp.hiLabel + '] · ' + cv.var_type + ' · obj: ' + formatNum(cv.obj));
+                                var cTip = escapeAttr('x' + idx + ' (' + cv.name + ') ∈ [' + cbp.loLabel + ', ' + cbp.hiLabel + '] · ' + variableTypeTooltip(cv.var_type, idx) + ' · obj: ' + formatNum(cv.obj));
                                 cRow.innerHTML =
                                     '<span class="variable-label-area">' +
                                         '<span class="variable-name var-link var-hover ' + cClass + varFracClass(idx) + '" data-var="' + idx + '" data-tip="' + cTip + '"' + varTipLpAttr(idx) + '>x' + idx + '</span>' +
@@ -3010,6 +3082,25 @@ function createConstraintRow(constraint, idx) {
 
     const tagsContainer = document.createElement('span');
     tagsContainer.className = 'constraint-tags';
+    tagsContainer.id = 'constraint-tags-' + idx;
+    tagsContainer.hidden = true;
+    const tagsToggle = document.createElement('button');
+    tagsToggle.className = 'constraint-tags-toggle';
+    tagsToggle.type = 'button';
+    tagsToggle.textContent = 'tags ' + tags.length;
+    tagsToggle.title = 'Show constraint tags';
+    tagsToggle.setAttribute('aria-expanded', 'false');
+    tagsToggle.setAttribute('aria-controls', tagsContainer.id);
+    tagsToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        tagsContainer.hidden = !tagsContainer.hidden;
+        tagsToggle.setAttribute('aria-expanded', String(!tagsContainer.hidden));
+        tagsToggle.title = tagsContainer.hidden ? 'Show constraint tags' : 'Hide constraint tags';
+        tagsToggle.textContent = tagsContainer.hidden ? 'tags ' + tags.length : 'hide tags';
+        const expr = row.querySelector('.constraint-expr');
+        if (expr) expr.classList.add('constraint-expr-split');
+        maybeCollapseBound(row);
+    });
     for (const t of tags) {
         const tag = document.createElement('span');
         tag.className = 'constraint-type-tag';
@@ -3144,6 +3235,7 @@ function createConstraintRow(constraint, idx) {
     row.appendChild(name);
     row.appendChild(solveBtn);
     row.appendChild(filterBtn);
+    if (tags.length) row.appendChild(tagsToggle);
     row.appendChild(tagsContainer);
     row.appendChild(expr);
     return row;
@@ -3203,7 +3295,7 @@ function formatTerms(terms) {
         const coeff = t.coeff;
         const absCoeff = Math.abs(coeff);
         const sign = coeff < 0 ? '−' : '+';
-        const varClass = 'var-' + t.var_type;
+        const varClass = termVariableClass(t);
 
         if (i === 0) {
             // First term: show minus sign attached, no plus
@@ -3221,7 +3313,7 @@ function formatTerms(terms) {
         const v = modelData.variables[t.var_index];
         const lo = v.lower === null || v.lower < -INF_THRESHOLD ? '-∞' : formatNum(v.lower);
         const hi = v.upper === null || v.upper > INF_THRESHOLD ? '∞' : formatNum(v.upper);
-        const tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') ∈ [' + lo + ', ' + hi + '] · ' + t.var_type + ' · obj: ' + formatNum(v.obj));
+        const tooltip = escapeAttr('x' + t.var_index + ' (' + v.name + ') ∈ [' + lo + ', ' + hi + '] · ' + variableTypeTooltip(t.var_type, t.var_index) + ' · obj: ' + formatNum(v.obj));
         html += '<span class="' + varClass + varFracClass(t.var_index) + ' var-hover" data-var="' + t.var_index + '" data-tip="' + tooltip + '"' + varTipLpAttr(t.var_index) + '>x' + t.var_index + '</span>';
     }
     return html;
@@ -3380,6 +3472,7 @@ function resetConstraintFilters() {
     activeComponentFilter = null;
     activeConstraintVarFilter = null;
     filterGroups = [];
+    negatedFilterIds.clear();
     topLevelOp = 'and';
     selectedGroupIds = new Set();
     selectedChipIds = new Set();
@@ -3975,7 +4068,7 @@ function formatAggregateTerms(terms) {
         const coeff = t.coeff;
         const absCoeff = Math.abs(coeff);
         const sign = coeff < 0 ? '−' : '+';
-        const varClass = 'var-' + t.var_type;
+        const varClass = termVariableClass(t);
         if (i === 0) {
             if (coeff < 0) html += '<span class="op">−</span>';
         } else {
@@ -4557,7 +4650,8 @@ function formatTermsLatex(terms) {
         if (Math.abs(absCoeff - 1) > 1e-10) {
             s += formatNum(absCoeff);
         }
-        s += vname;
+        s += t.var_type === 'continuous' && isImpliedIntegerVariable(t.var_index)
+            ? '\\textcolor{#22d3ee}{' + vname + '}' : vname;
     }
     return s;
 }
@@ -5503,6 +5597,7 @@ function applyHashFilters(params) {
     if (!params) params = parseHashParams();
     if (!params.type && !params.var) return;
     filterGroups = [];
+    negatedFilterIds.clear();
     selectedGroupIds = new Set();
     selectedChipIds = new Set();
     topLevelOp = 'and';
