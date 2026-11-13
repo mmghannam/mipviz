@@ -3328,18 +3328,30 @@ function formatNum(n) {
 }
 
 // ─── Constraint aggregation playground ───────────────────────────────────────
-// Click a side (LHS or a bound) of a constraint to start an aggregation; click
-// sides of other constraints to add them. Mode is fixed by the first grab.
-// Each contributor's sign is determined by whether the row's canonical direction
-// (the direction of its finite bound, or the direction implied by the grabbed
-// bound on a ranged row) matches the aggregate's mode. Scale is user-editable.
+// Grounded in HiGHS's HighsLpAggregator: every row is carried in the implicit
+// equation form
+//
+//     a_r · x − s_r = 0,        s_r ∈ [rowLower_r, rowUpper_r]
+//
+// where s_r is the row's slack (its activity). Aggregating rows with signed
+// weights λ_r gives
+//
+//     (Σ λ_r a_r) · x = Σ λ_r s_r.
+//
+// The right-hand side is a linear combination of slacks with known bounds, so
+// it is an interval [L, U]. Reading the finite ends of that interval yields the
+// valid inequalities  Σ λ a · x ≤ U  and/or  Σ λ a · x ≥ L  (an equality when
+// L == U). No row is ever "stuck" on one side: the sign of λ_r alone decides
+// which end of s_r's interval is used, and equality rows (s fixed) can be used
+// in either direction. This mirrors HiGHS's `HighsLpAggregator::addRow` and the
+// slack-bound substitution in `HighsTransformedLp::transform`.
 
 const aggState = {
-    mode: null,           // '<=' | '>=' | null (null = no aggregation)
-    terms: new Map(),     // string key -> { sign: +1|-1, scale: ≥0, side, syntheticConstraint? }
+    terms: new Map(),     // string key -> { scale: signed λ, side, syntheticConstraint? }
     globalScale: 1,       // multiplier applied to the whole aggregate
     cgApplied: false,     // true → display floor/ceil of coeffs and rhs
     mirApplied: false,    // true → display MIR-rounded form (mutex with cgApplied)
+    displaySide: 'upper', // which finite end of [L,U] to show: 'upper' (≤) | 'lower' (≥)
     complemented: new Set(), // substitute x → (ub − x)  [requires finite upper]
     shifted: new Set()       // substitute x → (x − lb)  [mutually exclusive with complement]
 };
@@ -3363,86 +3375,66 @@ function resolveConstraint(key) {
 }
 let aggPanelEl = null;
 
-function canonicalDirection(c, side) {
-    // The inequality direction when we read this side as the "expr op bound" form
-    // (expr on the left). Independent of which side was grabbed for bound grabs.
+// Slack bounds of a row: s ∈ [lower, upper], with ±∞ for missing bounds.
+function rowSlackBounds(c) {
     const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
     const upInf = c.upper === null || c.upper > INF_THRESHOLD;
-    const isEq = !lowInf && !upInf && Math.abs(c.lower - c.upper) < 1e-10;
-    if (side === 'lhs') {
-        if (lowInf && upInf) return null;  // free
-        if (isEq) return '<=';              // arbitrary; mode toggle can flip
-        if (lowInf) return '<=';            // expr <= upper
-        if (upInf) return '>=';             // expr >= lower
-        return null;                        // ranged — LHS ambiguous
-    }
-    if (side === 'upper') return '<=';      // expr <= upper
-    if (side === 'lower') return '>=';      // expr >= lower
-    return null;
-}
-
-function modeFor(c, side) {
-    // Mode = canonical direction. Grabbing a bound chunk reads the row in
-    // its natural form (`expr ≤ upper` or `expr ≥ lower`), so the first grab
-    // initialises the aggregate in that direction with sign=+1.
-    return canonicalDirection(c, side);
-}
-
-function boundValueFor(c, side) {
-    const lowInf = c.lower === null || c.lower < -INF_THRESHOLD;
-    const upInf = c.upper === null || c.upper > INF_THRESHOLD;
-    if (side === 'lhs') {
-        if (!upInf) return c.upper;
-        if (!lowInf) return c.lower;
-        return 0;
-    }
-    if (side === 'upper') return c.upper;
-    if (side === 'lower') return c.lower;
-    return 0;
-}
-
-function signForContribution(c, side, aggMode) {
-    const canon = canonicalDirection(c, side);
-    if (!canon || !aggMode) return 0;
-    return canon === aggMode ? 1 : -1;
+    return {
+        lower: lowInf ? -Infinity : c.lower,
+        upper: upInf ? Infinity : c.upper,
+    };
 }
 
 function onGrab(conIdx, side) {
     const key = String(conIdx);
     const c = resolveConstraint(key);
     if (!c) return;
-    const implied = modeFor(c, side);
-    if (!implied) return;  // ranged LHS or free row
+    const sb = rowSlackBounds(c);
+    if (!isFinite(sb.lower) && !isFinite(sb.upper)) return;  // free row: nothing to bound
 
-    if (aggState.mode === null) {
-        aggState.mode = implied;
-        const sign = signForContribution(c, side, aggState.mode);
-        aggState.terms.set(key, { sign: sign || 1, scale: 1, side });
-    } else if (aggState.terms.has(key)) {
-        const existing = aggState.terms.get(key);
-        if (existing.side === side) {
-            // Re-grab same side → remove
-            aggState.terms.delete(key);
-            if (aggState.terms.size === 0) aggState.mode = null;
-        } else {
-            // Different side of same row → re-record with the new side (sign may change)
-            const sign = signForContribution(c, side, aggState.mode) || 1;
-            aggState.terms.set(key, { sign, scale: existing.scale, side });
-        }
+    if (aggState.terms.has(key)) {
+        aggState.terms.delete(key);  // re-grab toggles the row off
     } else {
-        const sign = signForContribution(c, side, aggState.mode) || 1;
-        aggState.terms.set(key, { sign, scale: 1, side });
+        // Pick the sign that keeps the aggregate's finite side finite. The user
+        // can still override it by typing a different signed weight.
+        aggState.terms.set(key, { scale: preferredContributionScale(c), side: side });
     }
     refreshAllAggMarkers();
     renderAggPanel();
 }
 
+// Signed slack contribution of a row with weight `mult`.
+function slackIntervalContribution(c, mult) {
+    const sb = rowSlackBounds(c);
+    if (mult > 0) return { lower: mult * sb.lower, upper: mult * sb.upper };
+    return { lower: mult * sb.upper, upper: mult * sb.lower };
+}
+
+// Default weight sign for a newly grabbed row: keep whichever side of the
+// current slack interval is finite (the old auto-negation, but now explicit and
+// editable). Falls back to +1 when both sides are finite or the interval is free.
+function preferredContributionScale(c, cur) {
+    if (!cur) cur = combineAggregate();
+    const hasLower = isFinite(cur.lower);
+    const hasUpper = isFinite(cur.upper);
+    const sb = rowSlackBounds(c);
+    const rowHasLower = isFinite(sb.lower);
+    const rowHasUpper = isFinite(sb.upper);
+    if (hasUpper && !hasLower) {
+        return (rowHasLower && !rowHasUpper) ? -1 : 1;
+    }
+    if (hasLower && !hasUpper) {
+        return (rowHasUpper && !rowHasLower) ? -1 : 1;
+    }
+    return 1;
+}
+
 function clearAggregation() {
-    aggState.mode = null;
     aggState.terms.clear();
     aggState.globalScale = 1;
     aggState.cgApplied = false;
     aggState.mirApplied = false;
+    aggState.displaySide = 'upper';
     aggState.complemented.clear();
     aggState.shifted.clear();
     refreshAllAggMarkers();
@@ -3498,34 +3490,30 @@ function canonicalSide(c) {
     return 'upper';               // equality
 }
 
-// Bulk-add every currently visible (filtered) constraint to the aggregation,
-// grabbed by its canonical bound. Skips ranged/free and already-included rows.
+// Bulk-add every currently visible (filtered) constraint to the aggregation.
+// Each new row gets the default sign that keeps the aggregate's finite side
+// finite. Skips free rows and already-included rows.
 function addAllVisibleToAggregation() {
     if (!modelData) return;
     const indices = filteredConIndices || modelData.constraints.map(function(_, i) { return i; });
     if (indices.length === 0) return;
 
-    if (aggState.mode === null) {
-        for (let i = 0; i < indices.length; i++) {
-            const c = modelData.constraints[indices[i]];
-            const s = canonicalSide(c);
-            if (!s) continue;
-            const m = modeFor(c, s);
-            if (m) { aggState.mode = m; break; }
-        }
-        if (aggState.mode === null) return;
-    }
-
     let added = 0;
+    // Maintain the running slack interval so the preferred sign stays O(1) per row.
+    const cur = combineAggregate();
+    const g = (typeof aggState.globalScale === 'number' && aggState.globalScale >= 0) ? aggState.globalScale : 1;
     for (let i = 0; i < indices.length; i++) {
         const idx = indices[i];
         const key = String(idx);
         if (aggState.terms.has(key)) continue;
         const c = modelData.constraints[idx];
-        const s = canonicalSide(c);
-        if (!s) continue;
-        const sign = signForContribution(c, s, aggState.mode) || 1;
-        aggState.terms.set(key, { sign: sign, scale: 1, side: s });
+        const sb = rowSlackBounds(c);
+        if (!isFinite(sb.lower) && !isFinite(sb.upper)) continue;  // free row
+        const scale = preferredContributionScale(c, cur);
+        aggState.terms.set(key, { scale: scale, side: canonicalSide(c) || 'upper' });
+        const contrib = slackIntervalContribution(c, g * scale);
+        cur.lower += contrib.lower;
+        cur.upper += contrib.upper;
         added++;
     }
     if (added === 0) return;
@@ -3533,24 +3521,32 @@ function addAllVisibleToAggregation() {
     renderAggPanel();
 }
 
-function flipAggMode() {
-    if (aggState.mode === null) return;
-    aggState.mode = aggState.mode === '<=' ? '>=' : '<=';
-    for (const [key, term] of aggState.terms) {
-        const c = term.syntheticConstraint || resolveConstraint(key);
-        term.sign = signForContribution(c, term.side, aggState.mode) || term.sign;
-    }
+// Show the other finite end of the aggregate's slack interval. This is the
+// analogue of HiGHS's `negate` flag: it displays the same aggregation multiplied
+// by −1, so it never changes the contributors' weights.
+function cycleAggDisplaySide() {
+    const combined = combineAggregate();
+    if (!isFinite(combined.lower) || !isFinite(combined.upper)) return;
+    if (Math.abs(combined.upper - combined.lower) < 1e-9) return;  // equality
+    aggState.displaySide = aggState.displaySide === 'upper' ? 'lower' : 'upper';
+    aggState.cgApplied = false;
+    aggState.mirApplied = false;
     refreshAllAggMarkers();
     renderAggPanel();
 }
 
+// Combine the contributed rows in the form  Σ λ_r (a_r·x − s_r) = 0.
+// Returns the activity coefficients plus the interval [lower, upper] of the
+// slack combination Σ λ_r s_r (which is also the interval of the activity).
 function combineAggregate() {
     const coefByVar = new Map();
-    let rhs = 0;
+    let lower = 0;
+    let upper = 0;
     const g = (typeof aggState.globalScale === 'number' && aggState.globalScale >= 0) ? aggState.globalScale : 1;
     for (const [key, term] of aggState.terms) {
         const c = term.syntheticConstraint || resolveConstraint(key);
-        const mult = g * term.sign * term.scale;
+        const mult = g * term.scale;
+        if (Math.abs(mult) < 1e-15) continue;
         for (const t of c.terms) {
             const prev = coefByVar.get(t.var_index);
             if (prev) {
@@ -3559,11 +3555,20 @@ function combineAggregate() {
                 coefByVar.set(t.var_index, { var_index: t.var_index, coeff: mult * t.coeff, var_type: t.var_type, var_name: t.var_name });
             }
         }
-        rhs += mult * boundValueFor(c, term.side);
+        // mult > 0 reads the upper end of s_r for the upper bound and the lower
+        // end for the lower bound; a negative mult swaps them.
+        const sb = rowSlackBounds(c);
+        if (mult > 0) {
+            lower += mult * sb.lower;
+            upper += mult * sb.upper;
+        } else {
+            lower += mult * sb.upper;
+            upper += mult * sb.lower;
+        }
     }
-    // Apply complement substitutions x → (ub − x): coef flips, rhs shifts by
-    // `−coef·ub`. Binary is the ub=1 special case; any variable with finite
-    // upper bound can be complemented the same way.
+    // Apply complement substitutions x → (ub − x): coef flips and the whole
+    // interval shifts by `−coef·ub`. Binary is the ub=1 special case; any
+    // variable with a finite upper bound can be complemented the same way.
     for (const varIdx of aggState.complemented) {
         const info = coefByVar.get(varIdx);
         if (!info) continue;
@@ -3571,12 +3576,13 @@ function combineAggregate() {
         if (!v) continue;
         const ub = v.upper;
         if (ub === null || ub > INF_THRESHOLD) continue;  // no finite upper → can't complement
-        rhs -= info.coeff * ub;
+        lower -= info.coeff * ub;
+        upper -= info.coeff * ub;
         info.coeff = -info.coeff;
         info.complemented = true;
         info.complementUb = ub;
     }
-    // Apply shifts x → (x − lb): coef unchanged, rhs shifts by `−coef·lb`.
+    // Apply shifts x → (x − lb): coef unchanged, interval shifts by `−coef·lb`.
     // Mutually exclusive with complement per variable.
     for (const varIdx of aggState.shifted) {
         if (aggState.complemented.has(varIdx)) continue;
@@ -3586,7 +3592,8 @@ function combineAggregate() {
         if (!v) continue;
         const lb = v.lower;
         if (lb === null || lb < -INF_THRESHOLD) continue;
-        rhs -= info.coeff * lb;
+        lower -= info.coeff * lb;
+        upper -= info.coeff * lb;
         info.shifted = true;
         info.shiftLb = lb;
     }
@@ -3595,12 +3602,27 @@ function combineAggregate() {
         if (Math.abs(info.coeff) > 1e-10) terms.push(info);
     }
     terms.sort(function(a, b) { return a.var_index - b.var_index; });
-    return { terms: terms, rhs: rhs };
+    return { terms: terms, lower: lower, upper: upper };
 }
 
-// Display variant: applies CG strengthening on top of combineAggregate when enabled.
-// CG: for `Σ a_i x_i ≤ b` with x_i ∈ ℤ_{≥0}, the inequality `Σ ⌊a_i⌋ x_i ≤ ⌊b⌋` is valid.
-// For ≥ aggregates, ceil instead of floor.
+// Which end of the slack interval [L, U] is currently shown. 'eq' when both
+// ends coincide; null when neither end is finite (the aggregation is then a
+// free equation and cannot be read as an inequality without more rows).
+function aggregateDisplaySide(combined) {
+    const hasLower = isFinite(combined.lower);
+    const hasUpper = isFinite(combined.upper);
+    const scale = Math.max(1, Math.abs(combined.lower), Math.abs(combined.upper));
+    if (hasLower && hasUpper && Math.abs(combined.upper - combined.lower) <= 1e-9 * scale) return 'eq';
+    if (hasUpper && hasLower) return aggState.displaySide === 'lower' ? 'lower' : 'upper';
+    if (hasUpper) return 'upper';
+    if (hasLower) return 'lower';
+    return null;
+}
+
+// Display variant: applies CG/MIR strengthening on top of combineAggregate.
+// CG: for `Σ a_i x_i ≤ U` with x_i ∈ ℤ_{≥0}, `Σ ⌊a_i⌋ x_i ≤ ⌊U⌋` is valid.
+// For the ≥ end, ceil instead of floor. Only the rounded end stays valid, so the
+// other end is opened up.
 function combineDisplay() {
     const r = combineAggregate();
     if (aggState.cgApplied) return applyCgRounding(r);
@@ -3622,13 +3644,16 @@ function _copyTermMeta(t, coeff) {
 }
 
 function applyCgRounding(r) {
-    const round = aggState.mode === '<=' ? Math.floor : Math.ceil;
+    const side = aggregateDisplaySide(r);
+    if (side !== 'upper' && side !== 'lower' && side !== 'eq') return r;
+    const round = side === 'lower' ? Math.ceil : Math.floor;
     const rounded = [];
     for (const t of r.terms) {
         const c = round(t.coeff);
         if (Math.abs(c) > 1e-10) rounded.push(_copyTermMeta(t, c));
     }
-    return { terms: rounded, rhs: round(r.rhs) };
+    if (side === 'lower') return { terms: rounded, lower: round(r.lower), upper: Infinity };
+    return { terms: rounded, lower: -Infinity, upper: round(r.upper) };
 }
 
 // Standard MIR (≤ case): given `Σ aᵢ xᵢ + Σ cⱼ yⱼ ≤ b` with all vars ≥ 0,
@@ -3637,12 +3662,13 @@ function applyCgRounding(r) {
 //   continuous:  positive coefs → 0 (relaxed); negative coefs → cⱼ · ϕ.
 // Follows HiGHS HighsCutGeneration.cpp lines 690–717 with δ = 1.
 function applyMirRounding(r) {
-    const b = r.rhs;
+    const b = r.upper;
+    if (!isFinite(b)) return r;
     const bFloor = Math.floor(b);
     const f0 = b - bFloor;
     if (f0 < 1e-9 || f0 > 1 - 1e-9) {
         // No fractional rhs → MIR produces the same inequality.
-        return r;
+        return { terms: r.terms, lower: -Infinity, upper: bFloor };
     }
     const phi = 1 / (1 - f0);
     const rounded = [];
@@ -3661,14 +3687,16 @@ function applyMirRounding(r) {
         }
         if (Math.abs(newCoef) > 1e-10) rounded.push(_copyTermMeta(t, newCoef));
     }
-    return { terms: rounded, rhs: bFloor };
+    return { terms: rounded, lower: -Infinity, upper: bFloor };
 }
 
 // Evaluate the displayed aggregate at the current LP solution. Returns null
 // when there's no LP solution, no aggregate, or any variable value is missing.
 function evalAggregateAtLp(combined) {
-    if (!lpSolution || !lpSolution.col_values || aggState.mode === null) return null;
+    if (!lpSolution || !lpSolution.col_values || aggState.terms.size === 0) return null;
     if (!combined || combined.terms.length === 0) return null;
+    const side = aggregateDisplaySide(combined);
+    if (!side) return null;
     let lhsVal = 0;
     let normSq = 0;
     for (const t of combined.terms) {
@@ -3681,42 +3709,62 @@ function evalAggregateAtLp(combined) {
         lhsVal += t.coeff * v;
         normSq += t.coeff * t.coeff;
     }
-    const rhs = combined.rhs;
-    const slack = aggState.mode === '<=' ? (rhs - lhsVal) : (lhsVal - rhs);
-    const violated = slack < -1e-9;
+    let bound, slack, violated;
+    if (side === 'upper') {
+        bound = combined.upper;
+        slack = bound - lhsVal;
+        violated = slack < -1e-9;
+    } else if (side === 'lower') {
+        bound = combined.lower;
+        slack = lhsVal - bound;
+        violated = slack < -1e-9;
+    } else {
+        bound = combined.upper;
+        slack = -Math.abs(lhsVal - bound);
+        violated = Math.abs(lhsVal - bound) > 1e-9;
+    }
     const norm = Math.sqrt(normSq);
     // Efficacy = |violation| / ‖a‖₂ — Euclidean distance from the LP point to
     // the hyperplane. Only meaningful for violated cuts.
-    const efficacy = (violated && norm > 1e-12) ? (-slack / norm) : null;
-    return { lhsVal: lhsVal, rhs: rhs, slack: slack, violated: violated, efficacy: efficacy };
+    const efficacy = (violated && norm > 1e-12) ? (Math.abs(slack) / norm) : null;
+    return { lhsVal: lhsVal, bound: bound, side: side, slack: slack, violated: violated, efficacy: efficacy };
 }
 
 function formatViolationLine(evalRes) {
     if (!evalRes) return '';
-    const mag = Math.abs(evalRes.slack);
+    const rel = evalRes.side === 'upper' ? '&le;' : evalRes.side === 'lower' ? '&ge;' : '=';
     let status;
-    if (evalRes.violated) {
-        const effTxt = evalRes.efficacy !== null
-            ? ' <span class="agg-efficacy" title="Efficacy = violation / ‖a‖₂">eff ' + formatNum(evalRes.efficacy) + '</span>'
-            : '';
-        status = '<span class="agg-violated">violated by ' + formatNum(mag) + '</span>' + effTxt;
+    if (evalRes.side === 'eq') {
+        const off = Math.abs(evalRes.lhsVal - evalRes.bound);
+        status = off <= 1e-9
+            ? '<span class="agg-slack">holds</span>'
+            : '<span class="agg-violated">off by ' + formatNum(off) + '</span>';
     } else {
-        status = '<span class="agg-slack">slack ' + formatNum(mag) + '</span>';
+        const mag = Math.abs(evalRes.slack);
+        if (evalRes.violated) {
+            const effTxt = evalRes.efficacy !== null
+                ? ' <span class="agg-efficacy" title="Efficacy = violation / ‖a‖₂">eff ' + formatNum(evalRes.efficacy) + '</span>'
+                : '';
+            status = '<span class="agg-violated">violated by ' + formatNum(mag) + '</span>' + effTxt;
+        } else {
+            status = '<span class="agg-slack">slack ' + formatNum(mag) + '</span>';
+        }
     }
-    const rel = aggState.mode === '<=' ? '&le;' : '&ge;';
     return '<div class="agg-violation">'
         + '<span class="agg-violation-label">@ LP:</span> '
         + '<span class="agg-violation-val">' + formatNum(evalRes.lhsVal) + '</span> '
         + '<span class="relation">' + rel + '</span> '
-        + '<span class="agg-violation-val">' + formatNum(evalRes.rhs) + '</span> '
+        + '<span class="agg-violation-val">' + formatNum(evalRes.bound) + '</span> '
         + status
         + '</div>';
 }
 
 function aggregateIsCgEligible() {
-    if (aggState.mode === null || aggState.terms.size === 0) return false;
+    if (aggState.terms.size === 0) return false;
     const combined = combineAggregate();
     if (combined.terms.length === 0) return false;
+    const side = aggregateDisplaySide(combined);
+    if (side !== 'upper' && side !== 'lower' && side !== 'eq') return false;
     for (const t of combined.terms) {
         if (t.var_type !== 'integer' && t.var_type !== 'binary') return false;
         // Complemented or shifted vars have effective lower 0 after transform.
@@ -3727,12 +3775,14 @@ function aggregateIsCgEligible() {
     return true;
 }
 
-// MIR needs every (displayed) variable to have effective lower bound 0 and
-// aggregate mode ≤. Integer and continuous vars are both allowed.
+// MIR needs every (displayed) variable to have effective lower bound 0 and the
+// aggregate shown in its ≤ form. Integer and continuous vars are both allowed.
 function aggregateIsMirEligible() {
-    if (aggState.mode !== '<=' || aggState.terms.size === 0) return false;
+    if (aggState.terms.size === 0) return false;
     const combined = combineAggregate();
     if (combined.terms.length === 0) return false;
+    if (aggregateDisplaySide(combined) !== 'upper'
+        && aggregateDisplaySide(combined) !== 'eq') return false;
     for (const t of combined.terms) {
         if (t.complemented || t.shifted) continue;
         const v = modelData.variables[t.var_index];
@@ -3755,10 +3805,8 @@ function applyAggMarkers(row, expr, idx) {
 }
 
 function aggScalarLabel(term) {
-    const signStr = term.sign < 0 ? '−' : '';
-    const scaleStr = Math.abs(term.scale - 1) < 1e-10 ? '' : formatNum(term.scale);
-    if (!signStr && !scaleStr) return '×1';
-    return '×' + signStr + (scaleStr || '1');
+    if (Math.abs(term.scale - 1) < 1e-10) return '×1';
+    return '×' + formatNum(term.scale);
 }
 
 function refreshAllAggMarkers() {
@@ -3792,26 +3840,26 @@ function refreshAllAggMarkers() {
 // ── Saved-inequalities panel ─────────────────────────────────────────────────
 
 function saveCurrentAggregate() {
-    if (aggState.mode === null || !modelData) return;
+    if (aggState.terms.size === 0 || !modelData) return;
     const combined = combineDisplay();
     if (combined.terms.length === 0) return;
+    if (!aggregateDisplaySide(combined)) return;  // free equation: nothing to save
     const id = savedIdCounter++;
     const name = 'derived_' + (savedInequalities.size + 1);
 
     // Undo any complement/shift transforms before storing so the saved row is
-    // expressed in the original variables:
-    //   complement: coef·x̄ = coef·U − coef·x   → flip coef, rhs gains coef·U.
-    //   shift:      coef·x' = coef·(x − L)       → coef unchanged, rhs gains coef·L.
-    let savedRhs = combined.rhs;
+    // expressed in the original variables. The display bounds satisfy
+    // B_display = B_original + shift, so the original bounds are B_display − shift.
+    let shift = 0;
     const savedTerms = combined.terms.map(function(t) {
         let coeff = t.coeff;
         if (t.complemented) {
             const U = t.complementUb !== undefined ? t.complementUb : 0;
-            savedRhs -= t.coeff * U;
+            shift += t.coeff * U;
             coeff = -t.coeff;
         } else if (t.shifted) {
             const L = t.shiftLb !== undefined ? t.shiftLb : 0;
-            savedRhs += t.coeff * L;
+            shift -= t.coeff * L;
         }
         return { var_index: t.var_index, coeff: coeff, var_type: t.var_type, var_name: t.var_name };
     });
@@ -3820,8 +3868,8 @@ function saveCurrentAggregate() {
         id: id,
         name: name,
         terms: savedTerms,
-        lower: aggState.mode === '<=' ? null : savedRhs,
-        upper: aggState.mode === '<=' ? savedRhs : null,
+        lower: isFinite(combined.lower) ? combined.lower - shift : null,
+        upper: isFinite(combined.upper) ? combined.upper - shift : null,
     };
     savedInequalities.set(id, saved);
     renderSavedList();
@@ -3829,10 +3877,7 @@ function saveCurrentAggregate() {
 
 function deleteSavedInequality(id) {
     const key = 's:' + id;
-    if (aggState.terms.has(key)) {
-        aggState.terms.delete(key);
-        if (aggState.terms.size === 0) aggState.mode = null;
-    }
+    if (aggState.terms.has(key)) aggState.terms.delete(key);
     savedInequalities.delete(id);
     renderSavedList();
     refreshAllAggMarkers();
@@ -4104,7 +4149,7 @@ function _boundSyntheticConstraint(varIndex, bkind) {
 }
 
 // Two ways to cancel a variable from the aggregate:
-// (1) adjust an existing contributor's scale to make the var's coefficient sum to 0
+// (1) adjust an existing contributor's signed scale to make the var's coefficient sum to 0
 // (2) substitute the variable with a finite lower/upper bound (adds a synthetic bound row)
 function computeZeroOutOptions(varIndex) {
     let aggCoef = 0;
@@ -4115,25 +4160,28 @@ function computeZeroOutOptions(varIndex) {
         for (const t of c.terms) {
             if (t.var_index === varIndex) { varCoef = t.coeff; break; }
         }
-        aggCoef += term.sign * term.scale * varCoef;
+        aggCoef += term.scale * varCoef;
         if (Math.abs(varCoef) > 1e-12) {
             contribs.push({ key: key, term: term, varCoef: varCoef, name: c.name });
         }
     }
 
+    // Signed scales are allowed now, so every scalar adjustment is feasible.
     const scalarOptions = contribs.map(function(x) {
-        const newScale = x.term.scale - aggCoef / (x.term.sign * x.varCoef);
-        const feasible = newScale >= -1e-9;
+        const newScale = x.term.scale - aggCoef / x.varCoef;
         return {
             kind: 'scalar',
             key: x.key,
             name: x.name,
             curScale: x.term.scale,
-            newScale: feasible ? Math.max(0, newScale) : newScale,
-            feasible: feasible,
+            newScale: newScale,
+            feasible: true,
         };
     });
 
+    // A bound row `x ≤ ub` (or `x ≥ lb`) has activity coefficient 1, so adding it
+    // with weight −aggCoef cancels the variable. Its slack bound then flows into
+    // the aggregate interval automatically.
     const boundOptions = [];
     if (Math.abs(aggCoef) > 1e-12) {
         const v = modelData.variables[varIndex];
@@ -4143,12 +4191,6 @@ function computeZeroOutOptions(varIndex) {
             if (bkind === 'lb' && lowInf) return;
             if (bkind === 'ub' && upInf) return;
             const synth = _boundSyntheticConstraint(varIndex, bkind);
-            const side = bkind === 'ub' ? 'upper' : 'lower';
-            const sign = signForContribution(synth, side, aggState.mode);
-            if (!sign) return;
-            // Need: sign · scale · 1 + aggCoef = 0  →  scale = −aggCoef / sign
-            const scale = -aggCoef / sign;
-            const feasible = scale >= -1e-9;
             const key = bkind + ':' + varIndex;
             boundOptions.push({
                 kind: 'bound',
@@ -4156,10 +4198,9 @@ function computeZeroOutOptions(varIndex) {
                 bkind: bkind,
                 varIndex: varIndex,
                 synth: synth,
-                side: side,
-                sign: sign,
-                newScale: feasible ? Math.max(0, scale) : scale,
-                feasible: feasible,
+                side: bkind === 'ub' ? 'upper' : 'lower',
+                newScale: -aggCoef,
+                feasible: true,
                 name: synth.name,
                 alreadyApplied: aggState.terms.has(key),
             });
@@ -4318,19 +4359,10 @@ function applyZeroOutOption(opt) {
     if (opt.kind === 'scalar') {
         const term = aggState.terms.get(opt.key);
         if (!term || isNaN(opt.newScale)) return;
-        if (opt.newScale >= 0) {
-            term.scale = parseFloat(opt.newScale.toPrecision(10));
-        } else {
-            term.sign = -term.sign;
-            term.scale = parseFloat((-opt.newScale).toPrecision(10));
-        }
+        term.scale = parseFloat(opt.newScale.toPrecision(10));
     } else if (opt.kind === 'bound') {
-        let sign = opt.sign;
-        let scale = opt.newScale;
-        if (scale < 0) { sign = -sign; scale = -scale; }
         aggState.terms.set(opt.key, {
-            sign: sign,
-            scale: parseFloat(scale.toPrecision(10)),
+            scale: parseFloat(opt.newScale.toPrecision(10)),
             side: opt.side,
             syntheticConstraint: opt.synth,
         });
@@ -4361,7 +4393,7 @@ function showEmptyAggPanel() {
 }
 
 function renderAggPanel() {
-    if (aggState.mode === null) {
+    if (aggState.terms.size === 0) {
         if (aggPanelEl) aggPanelEl.classList.add('hidden');
         return;
     }
@@ -4375,20 +4407,29 @@ function renderAggPanel() {
     // CG and MIR are mutually exclusive as display transforms.
     if (aggState.cgApplied && aggState.mirApplied) aggState.mirApplied = false;
 
-    const relSym = aggState.mode === '<=' ? '&le;' : '&ge;';
+    const combined = combineDisplay();
+    const displaySide = aggregateDisplaySide(combined);
+    const relSym = displaySide === 'lower' ? '&ge;' : displaySide === 'eq' ? '=' : '&le;';
+    const boundVal = displaySide === 'lower' ? combined.lower
+                   : displaySide === 'upper' ? combined.upper
+                   : displaySide === 'eq' ? combined.upper : null;
+    const hasBothSides = isFinite(combined.lower) && isFinite(combined.upper)
+        && Math.abs(combined.upper - combined.lower) > 1e-9;
+    const toggleDisabled = !hasBothSides;
+    const toggleTitle = toggleDisabled
+        ? 'Only one end of the slack interval is finite'
+        : 'Show the other end of the slack interval (≤ / ≥)';
 
     let rowsHtml = '';
     for (const [key, term] of aggState.terms) {
         const c = term.syntheticConstraint || resolveConstraint(key);
         const isSaved = String(key).startsWith('s:');
-        const signBadge = term.sign < 0 ? '<span class="agg-neg-badge" title="Auto-negated to match mode">×−1</span>' : '';
         const nameClass = term.syntheticConstraint
             ? 'agg-con-name agg-bound-name'
             : (isSaved ? 'agg-con-name agg-saved-name' : 'agg-con-name');
         rowsHtml += '<div class="agg-term" data-con-idx="' + key + '">'
-            + '<input type="number" class="agg-scalar-input" step="any" min="0" value="' + term.scale + '" data-con-idx="' + key + '" aria-label="scalar">'
+            + '<input type="number" class="agg-scalar-input" step="any" value="' + term.scale + '" data-con-idx="' + key + '" aria-label="signed weight" title="Signed weight — a negative value uses the other end of the row\'s range">'
             + '<span class="agg-times">×</span>'
-            + signBadge
             + '<span class="' + nameClass + '">' + escapeHtml(c.name) + '</span>'
             + '<button class="agg-remove" data-con-idx="' + key + '" title="Remove">&times;</button>'
             + '</div>';
@@ -4399,20 +4440,22 @@ function renderAggPanel() {
         + '<span class="agg-times">\u00d7 whole aggregate</span>'
         + '</div>';
 
-    const combined = combineDisplay();
     const aggLhsHtml = formatAggregateTerms(combined.terms);
+    const boundHtml = boundVal === null
+        ? '<span class="agg-unbounded">unbounded slack — no finite side</span>'
+        : '<span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(boundVal) + '</span>';
     const aggLine = '<div class="agg-result">'
         + '<span class="agg-result-label">&Sigma;:</span> '
         + '<span class="constraint-expr constraint-expr-split">'
         + '<span class="constraint-lhs">' + aggLhsHtml + '</span>'
-        + '<span class="constraint-bound"> <span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(combined.rhs) + '</span></span>'
+        + '<span class="constraint-bound"> ' + boundHtml + '</span>'
         + '</span></div>'
         + formatViolationLine(evalAggregateAtLp(combined));
 
     const cgLabel = aggState.cgApplied ? 'Undo CG' : 'Apply CG';
     const cgTitle = cgEligible
         ? (aggState.cgApplied ? 'Show raw aggregate' : 'Floor coefficients (Chvátal–Gomory rounding)')
-        : 'CG requires all variables in Σ to be non-negative integer/binary';
+        : 'CG requires a bounded aggregate with all variables non-negative integer/binary';
     const cgBtn = '<button class="agg-cg-btn" ' + (cgEligible ? '' : 'disabled') + ' title="' + cgTitle + '">' + cgLabel + '</button>';
 
     const mirLabel = aggState.mirApplied ? 'Undo MIR' : 'Apply MIR';
@@ -4421,11 +4464,11 @@ function renderAggPanel() {
         : 'MIR needs a ≤ aggregate with every variable at effective lower bound 0 (shift or complement as needed)';
     const mirBtn = '<button class="agg-mir-btn" ' + (mirEligible ? '' : 'disabled') + ' title="' + mirTitle + '">' + mirLabel + '</button>';
 
-    const saveBtn = '<button class="agg-save-btn" title="Save this inequality for reuse in other aggregations">Save</button>';
+    const saveBtn = '<button class="agg-save-btn" ' + (displaySide ? '' : 'disabled') + ' title="Save this inequality for reuse in other aggregations">Save</button>';
 
     aggPanelEl.innerHTML = '<div class="agg-header">'
         + '<span class="agg-title">Aggregation</span>'
-        + '<button class="agg-mode-toggle" title="Flip mode (negates all signs)">' + relSym + '</button>'
+        + '<button class="agg-mode-toggle" ' + (toggleDisabled ? 'disabled ' : '') + 'title="' + toggleTitle + '">' + relSym + '</button>'
         + '<span class="agg-spacer"></span>'
         + cgBtn
         + mirBtn
@@ -4439,10 +4482,11 @@ function renderAggPanel() {
     const aggResultEl = aggPanelEl.querySelector('.agg-result');
     if (aggResultEl) maybeCollapseBound(aggResultEl);
 
-    aggPanelEl.querySelector('.agg-mode-toggle').addEventListener('click', flipAggMode);
+    const toggleEl = aggPanelEl.querySelector('.agg-mode-toggle');
+    if (toggleEl && !toggleDisabled) toggleEl.addEventListener('click', cycleAggDisplaySide);
     aggPanelEl.querySelector('.agg-clear').addEventListener('click', clearAggregation);
     const saveBtnEl = aggPanelEl.querySelector('.agg-save-btn');
-    if (saveBtnEl) saveBtnEl.addEventListener('click', saveCurrentAggregate);
+    if (saveBtnEl && !saveBtnEl.disabled) saveBtnEl.addEventListener('click', saveCurrentAggregate);
     const cgBtnEl = aggPanelEl.querySelector('.agg-cg-btn');
     if (cgBtnEl && !cgBtnEl.disabled) {
         cgBtnEl.addEventListener('click', function() {
@@ -4469,14 +4513,13 @@ function renderAggPanel() {
             const v = parseFloat(globalInp.value);
             if (isNaN(v) || v < 0) return;
             aggState.globalScale = v;
-            _updateAggResultInPlace(relSym);
+            _updateAggResultInPlace();
         });
     }
     aggPanelEl.querySelectorAll('.agg-remove').forEach(function(btn) {
         btn.addEventListener('click', function() {
             const key = btn.dataset.conIdx;
             aggState.terms.delete(key);
-            if (aggState.terms.size === 0) aggState.mode = null;
             refreshAllAggMarkers();
             renderAggPanel();
         });
@@ -4487,13 +4530,13 @@ function renderAggPanel() {
             const term = aggState.terms.get(key);
             if (!term) return;
             const v = parseFloat(inp.value);
-            if (isNaN(v) || v < 0) inp.value = term.scale;
+            if (isNaN(v)) inp.value = term.scale;
         });
         inp.addEventListener('input', function() {
             const key = inp.dataset.conIdx;
             const v = parseFloat(inp.value);
             const term = aggState.terms.get(key);
-            if (!term || isNaN(v) || v < 0) return;
+            if (!term || isNaN(v)) return;
             term.scale = v;
             if (!term.syntheticConstraint) {
                 const row = constraintsList.querySelector('.constraint-row[data-con-idx="' + key + '"]');
@@ -4502,20 +4545,28 @@ function renderAggPanel() {
                     if (handle) handle.dataset.aggScalar = aggScalarLabel(term);
                 }
             }
-            _updateAggResultInPlace(relSym);
+            _updateAggResultInPlace();
         });
     });
 }
 
 // Refresh the aggregate Σ line and violation line without a full re-render
 // (used by live inputs so the focused field keeps its caret).
-function _updateAggResultInPlace(relSym) {
+function _updateAggResultInPlace() {
     if (!aggPanelEl) return;
     const recombined = combineDisplay();
+    const side = aggregateDisplaySide(recombined);
+    const relSym = side === 'lower' ? '&ge;' : side === 'eq' ? '=' : '&le;';
+    const boundVal = side === 'lower' ? recombined.lower
+                   : side === 'upper' ? recombined.upper
+                   : side === 'eq' ? recombined.upper : null;
     const resultEl = aggPanelEl.querySelector('.agg-result .constraint-expr');
     if (resultEl) {
+        const boundHtml = boundVal === null
+            ? '<span class="agg-unbounded">unbounded slack — no finite side</span>'
+            : '<span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(boundVal) + '</span>';
         resultEl.innerHTML = '<span class="constraint-lhs">' + formatAggregateTerms(recombined.terms) + '</span>'
-            + '<span class="constraint-bound"> <span class="relation">' + relSym + '</span> <span class="bound-val">' + formatNum(recombined.rhs) + '</span></span>';
+            + '<span class="constraint-bound"> ' + boundHtml + '</span>';
         maybeCollapseBound(aggPanelEl.querySelector('.agg-result'));
     }
     const oldViol = aggPanelEl.querySelector('.agg-violation');
@@ -4562,7 +4613,7 @@ document.addEventListener('pointermove', function(e) {
         // Threshold crossed → start drag
         _aggDrag.dragging = true;
         document.body.classList.add('agg-dragging');
-        if (aggState.mode === null) showEmptyAggPanel();
+        if (aggState.terms.size === 0) showEmptyAggPanel();
         _aggDrag.preview = document.createElement('div');
         _aggDrag.preview.className = 'agg-drag-preview';
         _aggDrag.preview.textContent = _aggDrag.labelText;
@@ -4588,7 +4639,7 @@ document.addEventListener('pointerup', function(e) {
         _aggDragCleanup();
         if (overPanel) {
             onGrab(ds.conIdx, ds.side);
-        } else if (aggState.mode === null && aggPanelEl) {
+        } else if (aggState.terms.size === 0 && aggPanelEl) {
             // Aborted drag, panel was just empty placeholder → hide it
             aggPanelEl.classList.add('hidden');
             aggPanelEl.classList.remove('empty');
@@ -4603,7 +4654,7 @@ document.addEventListener('pointerup', function(e) {
 document.addEventListener('pointercancel', function() {
     if (!_aggDrag) return;
     _aggDragCleanup();
-    if (aggState.mode === null && aggPanelEl) {
+    if (aggState.terms.size === 0 && aggPanelEl) {
         aggPanelEl.classList.add('hidden');
         aggPanelEl.classList.remove('empty');
     }

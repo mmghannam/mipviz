@@ -2160,9 +2160,18 @@ body.agg-dragging * {
     cursor: pointer;
     line-height: 1;
 }
-.aggregation-panel .agg-mode-toggle:hover {
+.aggregation-panel .agg-mode-toggle:hover:not(:disabled) {
     background: var(--accent);
     color: #fff;
+}
+.aggregation-panel .agg-mode-toggle:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.aggregation-panel .agg-unbounded {
+    color: var(--orange);
+    font-style: italic;
+    font-size: 11px;
 }
 .aggregation-panel .agg-clear {
     background: transparent;
@@ -2210,14 +2219,11 @@ body.agg-dragging * {
 .aggregation-panel .agg-times {
     color: var(--text-muted);
 }
-.aggregation-panel .agg-neg-badge {
-    background: var(--orange-dim);
-    color: var(--orange);
-    border: 1px solid var(--orange);
-    border-radius: 3px;
-    padding: 0 4px;
-    font-size: 10px;
-    line-height: 1.4;
+.aggregation-panel .agg-cg-btn:disabled,
+.aggregation-panel .agg-mir-btn:disabled,
+.aggregation-panel .agg-save-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 .aggregation-panel .agg-con-name {
     color: var(--text-secondary);
