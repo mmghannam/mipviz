@@ -1910,6 +1910,23 @@ main {
     padding: 7px 0;
     border-bottom: 1px solid var(--border-subtle);
     animation: fadeIn 0.15s ease-out both;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.1s;
+}
+
+.constraint-row:hover {
+    background: var(--bg-hover);
+}
+
+/* Hand-picked for aggregation (click a row to toggle). */
+.constraint-row.selected {
+    background: var(--accent-dim);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.constraint-row.selected:hover {
+    background: var(--accent-dim);
 }
 
 .constraint-row:last-child {
@@ -4935,6 +4952,30 @@ body:not(.lr-panel-open) main {
     display: flex;
     gap: 8px;
     margin-bottom: 8px;
+}
+
+.constraints-drag-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    align-self: center;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+/* Rubber-band rectangle shown while sweeping constraint rows. */
+.con-marquee {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+}
+body.con-marquee-active,
+body.con-marquee-active * {
+    user-select: none !important;
+    cursor: crosshair !important;
 }
 
 /* LP solution values — see .variable-lp-val in Variables section */

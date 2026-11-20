@@ -57,6 +57,9 @@ let selectedGroupIds = new Set();// group ids selected by clicking the group box
 let selectedChipIds = new Set();  // chip ids selected by clicking a chip
 let negatedFilterIds = new Set(); // condition or group ids whose result is complemented
 
+// Constraints swept/clicked to fold into the aggregation (transient preview).
+let selectedConIndices = new Set();
+
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const uploadSection = document.getElementById('upload-section');
@@ -3068,6 +3071,7 @@ function createConstraintRow(constraint, idx) {
     const row = document.createElement('div');
     row.className = 'constraint-row';
     row.dataset.conIdx = idx;
+    if (selectedConIndices.has(idx)) row.classList.add('selected');
     const tags = constraint._tags || [];
     row.dataset.tags = tags.join(',');
     row.style.animationDelay = Math.min(idx - (constraintsShown), 30) * 3 + 'ms';
@@ -3447,6 +3451,7 @@ function clearAggregation() {
 function resetPlaygroundState() {
     if (typeof closeZeroOutMenu === 'function') closeZeroOutMenu();
     clearAggregation();
+    if (typeof clearConstraintSelection === 'function') clearConstraintSelection();
     if (savedInequalities) savedInequalities.clear();
     savedIdCounter = 0;
     if (typeof renderSavedList === 'function') renderSavedList();
@@ -3496,7 +3501,14 @@ function canonicalSide(c) {
 function addAllVisibleToAggregation() {
     if (!modelData) return;
     const indices = filteredConIndices || modelData.constraints.map(function(_, i) { return i; });
-    if (indices.length === 0) return;
+    addIndicesToAggregation(indices);
+}
+
+// Add a specific list of constraint indices to the current aggregation. Keeps a
+// running slack interval so the preferred sign stays O(1) per row. Returns the
+// number of rows actually added.
+function addIndicesToAggregation(indices) {
+    if (!modelData || !indices || indices.length === 0) return 0;
 
     let added = 0;
     // Maintain the running slack interval so the preferred sign stays O(1) per row.
@@ -3507,6 +3519,7 @@ function addAllVisibleToAggregation() {
         const key = String(idx);
         if (aggState.terms.has(key)) continue;
         const c = modelData.constraints[idx];
+        if (!c) continue;
         const sb = rowSlackBounds(c);
         if (!isFinite(sb.lower) && !isFinite(sb.upper)) continue;  // free row
         const scale = preferredContributionScale(c, cur);
@@ -3516,10 +3529,163 @@ function addAllVisibleToAggregation() {
         cur.upper += contrib.upper;
         added++;
     }
-    if (added === 0) return;
+    if (added === 0) return 0;
     refreshAllAggMarkers();
     renderAggPanel();
+    return added;
 }
+
+// ── Drag-to-aggregate constraints ───────────────────────────────────────────
+// A plain click toggles one row in the current aggregation; press and drag
+// sweeps a rubber-band block of rows and adds them to the aggregation on
+// release. There is no separate "aggregate" step.
+
+function applyConstraintSelectionClasses() {
+    if (!constraintsList) return;
+    constraintsList.querySelectorAll('.constraint-row').forEach(function(row) {
+        const idx = parseInt(row.dataset.conIdx, 10);
+        row.classList.toggle('selected', selectedConIndices.has(idx));
+    });
+}
+
+function clearConstraintSelection() {
+    selectedConIndices.clear();
+    applyConstraintSelectionClasses();
+}
+
+// Add a set of rows to the aggregation, revealing the panel if it was empty.
+function _commitRowsToAggregation(hits) {
+    if (!hits || hits.size === 0) return;
+    const wasEmpty = aggState.terms.size === 0;
+    const indices = Array.from(hits).filter(function(i) { return !isNaN(i); }).sort(function(a, b) { return a - b; });
+    const added = addIndicesToAggregation(indices);
+    if (added > 0 && wasEmpty && aggPanelEl) {
+        aggPanelEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+// Click: toggle this row in the aggregation (add if absent, remove if present).
+function _toggleRowAggregation(idx) {
+    const c = modelData && modelData.constraints[idx];
+    if (!c) return;
+    const wasEmpty = aggState.terms.size === 0;
+    const wasIn = aggState.terms.has(String(idx));
+    onGrab(idx, canonicalSide(c) || 'upper');
+    if (!wasIn && wasEmpty && aggState.terms.size > 0 && aggPanelEl) {
+        aggPanelEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+// Elements that keep their own click/drag behaviour instead of starting a sweep.
+const CON_SELECT_EXCLUDE = '.agg-grab, .var-hover, .constraint-link, button, input, select, a, .constraint-tags, .constraint-solve-table';
+const CON_MARQUEE_THRESHOLD_SQ = 16;  // 4px before a click becomes a drag
+let _conMarquee = null;   // { startPageX, startPageY, lastPageX, lastPageY, idx, active, hits }
+let _conMarqueeEl = null; // floating selection rectangle
+
+// Marquee geometry is tracked in page coordinates so auto-scrolling during a
+// sweep extends the selection instead of sliding the anchor out from under it.
+function _marqueePageRect(m) {
+    return {
+        left: Math.min(m.startPageX, m.lastPageX),
+        right: Math.max(m.startPageX, m.lastPageX),
+        top: Math.min(m.startPageY, m.lastPageY),
+        bottom: Math.max(m.startPageY, m.lastPageY),
+    };
+}
+
+function _marqueeHits(m) {
+    const r = _marqueePageRect(m);
+    const sx = window.scrollX;
+    const sy = window.scrollY;
+    const hits = new Set();
+    constraintsList.querySelectorAll('.constraint-row').forEach(function(row) {
+        const rr = row.getBoundingClientRect();
+        const left = rr.left + sx;
+        const right = rr.right + sx;
+        const top = rr.top + sy;
+        const bottom = rr.bottom + sy;
+        if (bottom >= r.top && top <= r.bottom && right >= r.left && left <= r.right) {
+            hits.add(parseInt(row.dataset.conIdx, 10));
+        }
+    });
+    return hits;
+}
+
+function _previewMarqueeSelection(m) {
+    m.hits = _marqueeHits(m);
+    constraintsList.querySelectorAll('.constraint-row').forEach(function(row) {
+        row.classList.toggle('selected', m.hits.has(parseInt(row.dataset.conIdx, 10)));
+    });
+}
+
+function _updateMarqueeOverlay(m) {
+    if (!_conMarqueeEl) return;
+    const r = _marqueePageRect(m);
+    _conMarqueeEl.style.left = (r.left - window.scrollX) + 'px';
+    _conMarqueeEl.style.top = (r.top - window.scrollY) + 'px';
+    _conMarqueeEl.style.width = (r.right - r.left) + 'px';
+    _conMarqueeEl.style.height = (r.bottom - r.top) + 'px';
+}
+
+function _endConMarquee(commit) {
+    const m = _conMarquee;
+    if (!m) return;
+    _conMarquee = null;
+    document.body.classList.remove('con-marquee-active');
+    if (_conMarqueeEl) { _conMarqueeEl.remove(); _conMarqueeEl = null; }
+
+    if (m.active) {
+        // Released after a sweep — fold the swept rows straight into the aggregate.
+        if (commit) _commitRowsToAggregation(_marqueeHits(m));
+        clearConstraintSelection();
+    } else if (commit) {
+        // No movement — treat it as a click.
+        _toggleRowAggregation(m.idx);
+    }
+}
+
+if (constraintsList) {
+    constraintsList.addEventListener('pointerdown', function(e) {
+        if (e.button !== 0) return;
+        if (e.target.closest(CON_SELECT_EXCLUDE)) return;
+        const row = e.target.closest('.constraint-row');
+        if (!row || !constraintsList.contains(row)) return;
+        const idx = parseInt(row.dataset.conIdx, 10);
+        if (isNaN(idx)) return;
+        e.preventDefault();  // don't start a native text selection while sweeping
+        _conMarquee = {
+            startPageX: e.clientX + window.scrollX,
+            startPageY: e.clientY + window.scrollY,
+            lastPageX: e.clientX + window.scrollX,
+            lastPageY: e.clientY + window.scrollY,
+            idx: idx,
+            active: false,
+            hits: new Set(),
+        };
+    });
+}
+
+document.addEventListener('pointermove', function(e) {
+    const m = _conMarquee;
+    if (!m) return;
+    m.lastPageX = e.clientX + window.scrollX;
+    m.lastPageY = e.clientY + window.scrollY;
+    if (!m.active) {
+        const dx = m.lastPageX - m.startPageX;
+        const dy = m.lastPageY - m.startPageY;
+        if (dx * dx + dy * dy < CON_MARQUEE_THRESHOLD_SQ) return;
+        m.active = true;
+        document.body.classList.add('con-marquee-active');
+        _conMarqueeEl = document.createElement('div');
+        _conMarqueeEl.className = 'con-marquee';
+        document.body.appendChild(_conMarqueeEl);
+    }
+    _updateMarqueeOverlay(m);
+    _previewMarqueeSelection(m);
+});
+
+document.addEventListener('pointerup', function() { _endConMarquee(true); });
+document.addEventListener('pointercancel', function() { _endConMarquee(false); });
 
 // Show the other finite end of the aggregate's slack interval. This is the
 // analogue of HiGHS's `negate` flag: it displays the same aggregation multiplied
