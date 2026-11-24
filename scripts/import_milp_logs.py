@@ -6,6 +6,12 @@ Times come from solver summaries, rather than the published .res table. Only
 proved optimal solutions with successful solution checks, or proved infeasible
 instances, receive a solve time.
 The version manifest is maintained separately so labels reflect the actual builds.
+
+When only some solvers were rerun (Mittelmann replaces individual archives in
+place), import just those and carry the rest over from the previous snapshot:
+
+    python3 scripts/import_milp_logs.py --downloads ~/Downloads --version 2026-11 \
+        --solvers highs --drop highs_p --base static/benchmark-2026-10-details.json
 """
 import argparse
 import gzip
@@ -72,19 +78,32 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--downloads', type=Path, required=True)
     ap.add_argument('--version', required=True)
-    ap.add_argument('--stats-from', type=Path, default=STATIC / 'benchmark-2026-07-details.json')
+    ap.add_argument('--base', type=Path, default=STATIC / 'benchmark-2026-07-details.json',
+                    help='details JSON supplying _stats and the solvers not re-imported')
+    ap.add_argument('--solvers', nargs='+', choices=sorted(FILES.values()), default=None,
+                    help='re-import only these solver keys, carrying the rest over from --base')
+    ap.add_argument('--drop', nargs='+', default=[], metavar='SOLVER',
+                    help='solver keys to remove from the snapshot')
     args = ap.parse_args()
     if not re.fullmatch(r'\d{4}-\d{2}', args.version):
         ap.error('--version must be YYYY-MM')
-    stats = json.loads(args.stats_from.read_text())
+    stats = json.loads(args.base.read_text())
+    wanted = set(args.solvers) if args.solvers else set(FILES.values())
+    if wanted != set(FILES.values()) and args.base == STATIC / 'benchmark-2026-07-details.json':
+        ap.error('--base is required when importing a subset of solvers')
     archives = {}
     for filename, solver in FILES.items():
+        if solver not in wanted:
+            continue
         matches = list(args.downloads.glob(f'modified.{filename}.*threads.7200s.out.gz'))
         if len(matches) != 1:
             ap.error(f'expected exactly one {filename} archive; found {len(matches)}')
         archives[solver] = matches[0]
     out_dir = 'logs-' + args.version
-    data = {key: {'_stats': entry['_stats']} for key, entry in stats.items()}
+    data = {key: dict(entry) for key, entry in stats.items()}
+    for solver in args.drop:
+        for entry in data.values():
+            entry.pop(solver, None)
     for solver, archive in archives.items():
         count, sizes = split(archive, solver, out_dir)
         expected = {key.removesuffix('.mps.gz') for key in data}

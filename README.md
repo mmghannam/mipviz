@@ -52,6 +52,19 @@ from the published results table. Add the snapshot to
 `static/benchmark-versions.json` in newest-first order, with solver versions and
 thread counts taken from the logs. Existing snapshots remain available.
 
+Mittelmann sometimes replaces a single archive in place (e.g. a solver update)
+while the others keep their old logs. Import just the changed solvers and carry
+the rest over from the previous snapshot, copying their log directories so the
+new snapshot stays self-contained:
+
+```bash
+python3 scripts/import_milp_logs.py --downloads ~/Downloads --version 2026-11 \
+    --solvers highs --drop highs_p --base static/benchmark-2026-10-details.json
+```
+
+`--solvers` limits which archives are read, `--base` supplies the instances and
+the unchanged solvers, and `--drop` removes columns that no longer exist.
+
 ## Tech
 
 - **Solvers**: [SCIP](https://www.scipopt.org) and [HiGHS](https://highs.dev), compiled to WebAssembly via Emscripten

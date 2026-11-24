@@ -1,6 +1,25 @@
 {
   "versions": [
     {
+      "id": "2026-11",
+      "label": "Nov 2026",
+      "date": "2026-11-20",
+      "details": "benchmark-2026-11-details.json",
+      "logs": "logs-2026-11",
+      "detail": true,
+      "sourceUrl": "https://plato.asu.edu/ftp/milp_log12/",
+      "attribution": "Up to 12 threads (SCIP concurrent: 10), 7200s time limit, AMD Ryzen 9 5900X (128GB). November 2026 snapshot.",
+      "note": "Only HiGHS was rerun for this snapshot: 1.16.0 replaces the serial 1.15.0 and parallel 1.15.1 columns with a single 12-thread parallel run, so the HiGHS numbers are not directly comparable with earlier snapshots. The other solvers' logs are unchanged from October and were carried over. Solve times and metrics are extracted from the downloaded solver logs; times have not been checked against the published results table.",
+      "solvers": [
+        {"key": "scip_spx", "label": "SCIP/spx 10.0.0", "closedSource": false, "separator": false},
+        {"key": "scip_conc", "label": "SCIPCO/spx 11.0.0 (10 threads)", "closedSource": false, "separator": false},
+        {"key": "highs", "label": "HiGHS 1.16.0 (par)", "closedSource": false, "separator": false},
+        {"key": "xsmoo", "label": "FiberSCIP/spx 11.0.0", "closedSource": false, "separator": false},
+        {"key": "copt", "label": "COPT 9.0.0", "closedSource": true, "separator": false},
+        {"key": "optverse", "label": "Optverse 2.0.1", "closedSource": true, "separator": false}
+      ]
+    },
+    {
       "id": "2026-10",
       "label": "Oct 2026",
       "date": "2026-10-28",
